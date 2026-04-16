@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Environment
+.env
+.env.local
+
+# Build
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp
+/tmp/
+*.tmp
+
+# ── Qdrant & MinIO (local infrastructure) ──
+# Binaries
+minio
+minio.deb
+.local_infrastructure/bin/
+
+# Runtime data, logs, PIDs
+.local_infrastructure/data/
+.local_infrastructure/logs/
+.local_infrastructure/*.pid
+
+# Qdrant state/snapshots
+.qdrant-initialized
+snapshots/
+
+# Catch-all for entire local infra dir (covers future additions)
+.local_infrastructure/
