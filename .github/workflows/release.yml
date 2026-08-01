@@ -48,8 +48,9 @@ jobs:
           python-version: "3.12"
 
       - name: Build Python Backend Executable (PyInstaller Sidecar)
+        shell: bash
         run: |
-          pip install pyinstaller uvicorn fastapi python-multipart pydantic-settings pydantic sqlalchemy chromadb openai sentence-transformers python-dotenv httpx
+          pip install pyinstaller uvicorn fastapi python-multipart pydantic-settings pydantic sqlalchemy chromadb openai sentence-transformers python-dotenv httpx passlib python-jose cryptography alembic
           cd backend
           pyinstaller --onefile --name workpilot-backend main.py
           mkdir -p ../WPAI-local/src-tauri/binaries
@@ -57,9 +58,11 @@ jobs:
             cp dist/workpilot-backend.exe ../WPAI-local/src-tauri/binaries/workpilot-backend-x86_64-pc-windows-msvc.exe
           elif [ "${{ runner.os }}" = "macOS" ]; then
             cp dist/workpilot-backend ../WPAI-local/src-tauri/binaries/workpilot-backend-x86_64-apple-darwin
+            cp dist/workpilot-backend ../WPAI-local/src-tauri/binaries/workpilot-backend-aarch64-apple-darwin
           else
             cp dist/workpilot-backend ../WPAI-local/src-tauri/binaries/workpilot-backend-x86_64-unknown-linux-gnu
           fi
+
 
       - name: Build and Publish Tauri App
         uses: tauri-apps/tauri-action@v0
