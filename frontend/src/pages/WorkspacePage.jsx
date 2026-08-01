@@ -5,7 +5,10 @@ import {
   AlertTriangle, Upload, Loader2, CheckCircle2,
   XCircle, Clock, Send, ChevronDown, Sparkles
 } from 'lucide-react';
-import { workspaceApi, documentApi, meetingApi } from '../lib/api';
+import {
+  getWorkspace, uploadDocument, extractDocument,
+  uploadMeeting, transcribeMeeting, extractActions
+} from '../lib/api';
 import UploadZone from '../components/UploadZone';
 import ChatPanel from '../components/ChatPanel';
 import SourceList from '../components/SourceList';
@@ -30,7 +33,7 @@ export default function WorkspacePage() {
 
   const loadWorkspace = async () => {
     try {
-      const res = await workspaceApi.get(id);
+      const res = await getWorkspace(id);
       setWorkspace(res.data);
     } catch (err) {
       console.error('Failed to load workspace:', err);
@@ -46,12 +49,12 @@ export default function WorkspacePage() {
 
       try {
         // Upload
-        const uploadRes = await documentApi.upload(file, id);
+        const uploadRes = await uploadDocument(id, file);
         const sourceId = uploadRes.data.id;
 
         // Extract
         setProcessing(p => ({ ...p, [fileId]: { name: file.name, step: 'Parsing & extracting...' } }));
-        await documentApi.extract(sourceId);
+        await extractDocument(sourceId);
 
         setProcessing(p => ({ ...p, [fileId]: { name: file.name, step: 'Done', done: true } }));
       } catch (err) {
@@ -68,16 +71,16 @@ export default function WorkspacePage() {
       setProcessing(p => ({ ...p, [fileId]: { name: file.name, step: 'Uploading...' } }));
 
       try {
-        const uploadRes = await meetingApi.upload(file, id);
+        const uploadRes = await uploadMeeting(id, file);
         const sourceId = uploadRes.data.id;
 
         // Transcribe
         setProcessing(p => ({ ...p, [fileId]: { name: file.name, step: 'Transcribing...' } }));
-        await meetingApi.transcribe(sourceId);
+        await transcribeMeeting(sourceId);
 
         // Extract actions
         setProcessing(p => ({ ...p, [fileId]: { name: file.name, step: 'Extracting actions...' } }));
-        await meetingApi.extractActions(sourceId);
+        await extractActions(sourceId);
 
         setProcessing(p => ({ ...p, [fileId]: { name: file.name, step: 'Done', done: true } }));
       } catch (err) {

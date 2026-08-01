@@ -1,118 +1,102 @@
-"""Capture service — manages audio chunk ingestion from local companion and org bot."""
+"""Capture service — session lifecycle and audio chunk management (local)."""
 
 import logging
-import uuid
-import hashlib
 from datetime import datetime
-from sqlalchemy.orm import Session as DBSession
+from sqlalchemy.orm import Session
 
-from app.config import settings
 from app.models import (
-    MeetingSession, Source, DeviceToken, BotServiceToken,
-    MeetingCaptureMode, SessionStatus, SourceType, SourceStatus,
+    MeetingSession, Source, MeetingCaptureMode,
+    SessionStatus, SourceType, SourceStatus, Workspace,
 )
-from app.utils.storage import upload_file, ensure_bucket
+from app.utils.storage import save_chunk
+from app.services.auth import get_or_create_local_user
 
 logger = logging.getLogger(__name__)
 
 
-def verify_device_token(db: DBSession, raw_token: str) -> DeviceToken | None:
-    """Verify a device token and return the DeviceToken record."""
-    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
-    device = db.query(DeviceToken).filter(
-        DeviceToken.token_hash == token_hash,
-        DeviceToken.is_active == True,
-    ).first()
-    if device:
-        device.last_seen_at = datetime.utcnow()
-        db.commit()
-    return device
-
-
-def verify_bot_token(db: DBSession, raw_token: str) -> BotServiceToken | None:
-    """Verify a bot service token and return the BotServiceToken record."""
-    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
-    token = db.query(BotServiceToken).filter(
-        BotServiceToken.token_hash == token_hash,
-        BotServiceToken.is_active == True,
-    ).first()
-    if token:
-        token.last_used_at = datetime.utcnow()
-        db.commit()
-    return token
-
-
 def create_capture_session(
-    workspace_id: uuid.UUID,
+    workspace_id: str,
     capture_mode: MeetingCaptureMode,
-    db: DBSession,
-    title: str | None = None,
-    platform: str | None = None,
-    meeting_url: str | None = None,
-    consent_given: bool = False,
-    device_id: uuid.UUID | None = None,
-    bot_service_token_id: uuid.UUID | None = None,
-    provider_session_id: str | None = None,
+    db: Session,
+    title: str = None,
+    platform: str = None,
+    consent_given: bool = True,
 ) -> MeetingSession:
-    """Create a capture session bound to a device or bot service token."""
+    """Create a new capture session."""
+    db_workspace = None
+    if workspace_id:
+        try:
+            db_workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+        except Exception:
+            pass
+
+    if not db_workspace:
+        # Fallback to the first available workspace
+        db_workspace = db.query(Workspace).order_by(Workspace.created_at.asc()).first()
+        if not db_workspace:
+            user = get_or_create_local_user(db)
+            db_workspace = Workspace(
+                name="My Workspace",
+                description="Default workspace created automatically.",
+                owner_id=user.id,
+            )
+            db.add(db_workspace)
+            db.commit()
+            db.refresh(db_workspace)
+        workspace_id = str(db_workspace.id)
+
     session = MeetingSession(
         workspace_id=workspace_id,
         capture_mode=capture_mode,
         status=SessionStatus.LISTENING,
-        platform=platform or ("system_audio" if capture_mode == MeetingCaptureMode.LOCAL_LISTENER else "bot"),
-        meeting_url=meeting_url,
-        title=title or f"Capture {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}",
+        platform=platform,
+        title=title or f"Recording {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}",
         consent_given=consent_given,
         started_at=datetime.utcnow(),
-        device_id=device_id,
-        bot_service_token_id=bot_service_token_id,
-        provider_session_id=provider_session_id,
         chunks_received=0,
     )
     db.add(session)
     db.commit()
     db.refresh(session)
-
-    logger.info(
-        f"Created capture session {session.id} "
-        f"[mode={capture_mode.value}, device={device_id}, bot={bot_service_token_id}]"
-    )
+    logger.info(f"Capture session created: {session.id} ({capture_mode.value})")
     return session
 
 
 def receive_audio_chunk(
-    session_id: uuid.UUID,
-    chunk_data: bytes,
+    session_id: str,
+    content: bytes,
     chunk_index: int,
-    db: DBSession,
+    db: Session,
 ) -> int:
-    """Store an audio chunk in MinIO and update the session counter."""
-    session = db.query(MeetingSession).filter(MeetingSession.id == session_id).first()
+    """Store an audio chunk to local filesystem."""
+    session = db.query(MeetingSession).filter(
+        MeetingSession.id == session_id
+    ).first()
+
     if not session:
-        raise ValueError("Session not found")
+        raise ValueError(f"Session not found: {session_id}")
     if session.status not in (SessionStatus.LISTENING, SessionStatus.PENDING):
-        raise ValueError(f"Session is {session.status.value}, cannot accept chunks")
+        raise ValueError(f"Session not accepting chunks (status: {session.status.value})")
 
-    # Ensure MinIO bucket
-    ensure_bucket()
+    # Save chunk to local filesystem
+    save_chunk(session.workspace_id, session_id, chunk_index, content)
 
-    # Upload chunk to MinIO
-    object_name = f"capture/{session_id}/chunk_{chunk_index:06d}.wav"
-    upload_file(object_name, chunk_data, "audio/wav")
-
-    # Update counter
     session.chunks_received = (session.chunks_received or 0) + 1
-    db.commit()
+    if session.status == SessionStatus.PENDING:
+        session.status = SessionStatus.LISTENING
+        session.started_at = datetime.utcnow()
 
-    logger.debug(f"Received chunk {chunk_index} for session {session_id}")
+    db.commit()
     return session.chunks_received
 
 
-def process_keepalive(session_id: uuid.UUID, db: DBSession) -> MeetingSession:
-    """Process a keep-alive heartbeat for a capture session."""
-    session = db.query(MeetingSession).filter(MeetingSession.id == session_id).first()
+def process_keepalive(session_id: str, db: Session) -> MeetingSession:
+    """Process a keep-alive heartbeat."""
+    session = db.query(MeetingSession).filter(
+        MeetingSession.id == session_id
+    ).first()
     if not session:
-        raise ValueError("Session not found")
+        raise ValueError(f"Session not found: {session_id}")
 
     session.metadata_json = {
         **(session.metadata_json or {}),
@@ -122,31 +106,27 @@ def process_keepalive(session_id: uuid.UUID, db: DBSession) -> MeetingSession:
     return session
 
 
-def finalize_session(session_id: uuid.UUID, db: DBSession) -> MeetingSession:
-    """Finalize a capture session — concatenate chunks, create Source, trigger transcription."""
-    session = db.query(MeetingSession).filter(MeetingSession.id == session_id).first()
+def finalize_session(session_id: str, db: Session) -> MeetingSession:
+    """Finalize a capture session — create source record, trigger pipeline."""
+    session = db.query(MeetingSession).filter(
+        MeetingSession.id == session_id
+    ).first()
     if not session:
-        raise ValueError("Session not found")
+        raise ValueError(f"Session not found: {session_id}")
 
     session.status = SessionStatus.PROCESSING
     session.ended_at = datetime.utcnow()
+
     if session.started_at:
         session.duration_seconds = (session.ended_at - session.started_at).total_seconds()
 
-    # Create a Source record for the captured audio
+    # Create a source record for the captured audio
     source = Source(
         workspace_id=session.workspace_id,
         source_type=SourceType.MEETING,
-        filename=f"capture_{session.id}.wav",
-        storage_path=f"capture/{session.id}/",
-        mime_type="audio/wav",
+        filename=session.title or f"recording_{session_id}",
+        storage_path=f"{session.workspace_id}/{session_id}",
         status=SourceStatus.UPLOADED,
-        metadata_json={
-            "session_id": str(session.id),
-            "capture_mode": session.capture_mode.value,
-            "chunks_count": session.chunks_received or 0,
-            "duration_seconds": session.duration_seconds,
-        },
     )
     db.add(source)
     db.flush()
@@ -156,24 +136,17 @@ def finalize_session(session_id: uuid.UUID, db: DBSession) -> MeetingSession:
     db.refresh(session)
 
     logger.info(
-        f"Finalized capture session {session.id}: "
-        f"{session.chunks_received} chunks, {session.duration_seconds:.1f}s"
+        f"Session finalized: {session_id}, "
+        f"chunks={session.chunks_received}, "
+        f"duration={session.duration_seconds:.1f}s"
     )
 
-    # NOTE: In production, this would trigger an async task to:
-    # 1. Concatenate audio chunks from MinIO
-    # 2. Run transcription (faster-whisper)
-    # 3. Run diarization (pyannote)
-    # 4. Extract actions (LLM)
-    # 5. Index in Qdrant
-    # For now, mark as completed and let the user trigger processing via MeetOps UI
-    session.status = SessionStatus.COMPLETED
-    source.status = SourceStatus.READY
-    db.commit()
-
+    # TODO: Trigger async processing pipeline (transcription → diarization → extraction)
     return session
 
 
-def get_session_status(session_id: uuid.UUID, db: DBSession) -> MeetingSession | None:
+def get_session_status(session_id: str, db: Session) -> MeetingSession:
     """Get the current status of a capture session."""
-    return db.query(MeetingSession).filter(MeetingSession.id == session_id).first()
+    return db.query(MeetingSession).filter(
+        MeetingSession.id == session_id
+    ).first()

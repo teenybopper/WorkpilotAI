@@ -1,16 +1,12 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
 import {
   Plus, FolderOpen, FileText, Mic, ArrowRight,
-  Sparkles, Brain, Layers, Zap, ListTodo,
-  AlertTriangle, Loader2, Activity, Plug,
-  Building2, User, BarChart3, Clock
+  Brain, Layers, Zap, Loader2, Sparkles
 } from 'lucide-react';
-import { workspaceApi } from '../lib/api';
+import { getWorkspaces, createWorkspace } from '../lib/api';
 
 export default function DashboardPage() {
-  const { user, organization } = useAuth();
   const [workspaces, setWorkspaces] = useState([]);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
@@ -23,7 +19,7 @@ export default function DashboardPage() {
 
   const loadWorkspaces = async () => {
     try {
-      const res = await workspaceApi.list();
+      const res = await getWorkspaces();
       setWorkspaces(res.data);
     } catch (err) {
       console.error('Failed to load workspaces:', err);
@@ -36,7 +32,7 @@ export default function DashboardPage() {
     e.preventDefault();
     if (!newName.trim()) return;
     try {
-      await workspaceApi.create({ name: newName, description: newDesc });
+      await createWorkspace({ name: newName, description: newDesc });
       setNewName('');
       setNewDesc('');
       setShowCreate(false);
@@ -46,191 +42,152 @@ export default function DashboardPage() {
     }
   };
 
-  const allFeatures = [
-    { icon: FileText, label: 'DocOps', desc: 'Upload, parse, and manage documents', color: 'from-blue-500 to-cyan-500', to: '/docops' },
-    { icon: Mic, label: 'MeetOps', desc: 'Meeting bot, transcripts & insights', color: 'from-purple-500 to-pink-500', to: '/meetops', orgOnly: true },
-    { icon: Zap, label: 'ActionOps', desc: 'Integrations, approvals & automation', color: 'from-emerald-500 to-teal-500', to: '/actions' },
-    { icon: Brain, label: 'Intelligence', desc: 'Cross-source Q&A and evidence', color: 'from-amber-500 to-orange-500', to: '/' },
+  const features = [
+    { icon: FileText, label: 'DocOps', desc: 'Upload, parse & extract document intelligence', to: '/docops', accent: 'border-amber-500/20 text-amber-600 dark:text-amber-400' },
+    { icon: Mic, label: 'MeetOps', desc: 'Live listener, ASR transcription & diarization', to: '/meetops', accent: 'border-purple-500/20 text-purple-600 dark:text-purple-400' },
+    { icon: Zap, label: 'ActionOps', desc: 'Agentic action plans & MCP tool integrations', to: '/actions', accent: 'border-emerald-500/20 text-emerald-600 dark:text-emerald-400' },
+    { icon: Brain, label: 'Intelligence', desc: 'RAG search, cross-source synthesis & summaries', to: '/docops', accent: 'border-blue-500/20 text-blue-600 dark:text-blue-400' },
   ];
-
-  const features = allFeatures.filter(f => !f.orgOnly || organization);
 
   const totalDocs = workspaces.reduce((sum, ws) => sum + (ws.document_count || 0), 0);
   const totalMeetings = workspaces.reduce((sum, ws) => sum + (ws.meeting_count || 0), 0);
 
-  // Greeting based on time
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-6">
-      {/* Hero */}
-      <section className="mb-8 animate-fade-in-up">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-extrabold text-surface-950 tracking-tight mb-1">
-              {greeting}, {user?.name?.split(' ')[0] || 'there'} 👋
-            </h1>
-            <p className="text-sm text-surface-600">
-              {organization
-                ? <span className="flex items-center gap-1.5"><Building2 className="w-3.5 h-3.5 text-purple-400" /> {organization.name} — {organization.plan_tier} plan</span>
-                : 'Your unified workspace — documents, meetings, and actions in one place.'
-              }
-            </p>
+    <div className="space-y-8">
+      {/* Hero Banner */}
+      <section className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[var(--border-subtle)] pb-6">
+        <div>
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+            <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+            <span>Unified Workspace</span>
           </div>
-          <button
-            onClick={() => setShowCreate(true)}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-primary-600 to-accent-600 text-white font-medium text-xs shadow-lg shadow-primary-500/25 hover:shadow-primary-500/40 hover:scale-[1.02] transition-all cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" /> New Workspace
-          </button>
+          <h1 className="font-heading text-3xl sm:text-4xl text-[var(--text-primary)]">
+            {greeting}
+          </h1>
+          <p className="text-sm text-[var(--text-secondary)] mt-1 font-sans">
+            Documents, meeting recordings, and agentic workflows — running on your device.
+          </p>
+        </div>
+        <button
+          onClick={() => setShowCreate(true)}
+          className="btn-dark px-4 py-2.5 text-xs flex items-center justify-center gap-2 self-start sm:self-auto cursor-pointer shadow-sm"
+        >
+          <Plus className="w-4 h-4" />
+          <span>New Workspace</span>
+        </button>
+      </section>
+
+      {/* Quick Metrics Grid */}
+      <section className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="app-card p-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-[var(--text-muted)]">Workspaces</span>
+            <Layers className="w-4 h-4 text-stone-500" />
+          </div>
+          <p className="font-heading text-3xl text-[var(--text-primary)]">{workspaces.length}</p>
+          <p className="text-[11px] text-[var(--text-muted)] mt-1">Active environments</p>
+        </div>
+
+        <div className="app-card p-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-[var(--text-muted)]">Documents</span>
+            <FileText className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+          </div>
+          <p className="font-heading text-3xl text-[var(--text-primary)]">{totalDocs}</p>
+          <p className="text-[11px] text-[var(--text-muted)] mt-1">Parsed & indexed</p>
+        </div>
+
+        <div className="app-card p-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-[var(--text-muted)]">Meetings</span>
+            <Mic className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+          </div>
+          <p className="font-heading text-3xl text-[var(--text-primary)]">{totalMeetings}</p>
+          <p className="text-[11px] text-[var(--text-muted)] mt-1">Diarized & transcribed</p>
+        </div>
+
+        <div className="app-card p-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-[var(--text-muted)]">Local Status</span>
+            <Zap className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+          </div>
+          <p className="font-heading text-xl text-[var(--text-primary)] mt-1">Ready</p>
+          <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            Active companion
+          </p>
         </div>
       </section>
 
-      {/* Quick stats */}
-      <section className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
-        <div className="glass-card p-4">
-          <div className="flex items-center gap-3 mb-1.5">
-            <div className="w-8 h-8 rounded-xl bg-primary-500/10 border border-primary-500/20 flex items-center justify-center">
-              <Layers className="w-3.5 h-3.5 text-primary-400" />
-            </div>
-          </div>
-          <p className="text-xl font-bold text-surface-950">{workspaces.length}</p>
-          <p className="text-xs text-surface-600 mt-0.5">Workspaces</p>
-        </div>
-        <div className="glass-card p-4">
-          <div className="flex items-center gap-3 mb-1.5">
-            <div className="w-8 h-8 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
-              <FileText className="w-3.5 h-3.5 text-blue-400" />
-            </div>
-          </div>
-          <p className="text-xl font-bold text-surface-950">{totalDocs}</p>
-          <p className="text-xs text-surface-600 mt-0.5">Documents</p>
-        </div>
-        {organization && (
-          <div className="glass-card p-4">
-            <div className="flex items-center gap-3 mb-1.5">
-              <div className="w-8 h-8 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center">
-                <Mic className="w-3.5 h-3.5 text-purple-400" />
-              </div>
-            </div>
-            <p className="text-xl font-bold text-surface-950">{totalMeetings}</p>
-            <p className="text-xs text-surface-600 mt-0.5">Meetings</p>
-          </div>
-        )}
-        <div className="glass-card p-4">
-          <div className="flex items-center gap-3 mb-1.5">
-            <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-              <Zap className="w-3.5 h-3.5 text-emerald-400" />
-            </div>
-          </div>
-          <p className="text-xl font-bold text-surface-950">—</p>
-          <p className="text-xs text-surface-600 mt-0.5">Pending Actions</p>
-        </div>
-      </section>
-
-      {/* Module cards */}
-      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
-        {features.map((f, i) => (
+      {/* Feature Modules Grid */}
+      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {features.map((f) => (
           <Link
             key={f.label}
             to={f.to}
-            className={`glass-card p-4 group animate-fade-in-up animate-fade-in-up-delay-${i + 1}`}
+            className="app-card p-5 group flex flex-col justify-between hover:border-[var(--border-strong)] transition-all"
           >
-            <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${f.color} flex items-center justify-center mb-2.5 shadow-lg`}>
-              <f.icon className="w-4 h-4 text-white" />
+            <div>
+              <div className={`w-9 h-9 rounded-xl border flex items-center justify-center mb-3 bg-[var(--bg-primary)] ${f.accent}`}>
+                <f.icon className="w-4 h-4" />
+              </div>
+              <h3 className="font-heading text-xl text-[var(--text-primary)] group-hover:underline">{f.label}</h3>
+              <p className="text-xs text-[var(--text-secondary)] mt-1">{f.desc}</p>
             </div>
-            <h3 className="font-semibold text-sm text-surface-950 mb-0.5 group-hover:text-primary-400 transition-colors">{f.label}</h3>
-            <p className="text-xs text-surface-700">{f.desc}</p>
+            <div className="flex items-center gap-1 text-xs font-medium text-[var(--text-muted)] mt-4 group-hover:text-[var(--text-primary)] transition-colors">
+              <span>Open</span>
+              <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+            </div>
           </Link>
         ))}
       </section>
 
-      {/* Capture Mode card — only for org users */}
-      {organization && (
-        <section className="mb-8 animate-fade-in-up">
-          <Link to="/setup/bot" className="glass-card p-5 flex items-center gap-4 group">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center shadow-lg flex-shrink-0">
-              <Activity className="w-5 h-5 text-white" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <h3 className="font-bold text-sm text-surface-950 mb-0.5 group-hover:text-primary-400 transition-colors">Meeting Bot Service</h3>
-              <p className="text-xs text-surface-700">Configure bot to join meetings as a visible participant. Manage provider connections.</p>
-            </div>
-            <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-xs font-medium text-cyan-400 flex-shrink-0">
-              <Building2 className="w-3 h-3" /> Business Mode
-            </div>
-          </Link>
-        </section>
-      )}
-
-      {/* Create modal */}
-      {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <form onSubmit={handleCreate} className="glass-card p-8 w-full max-w-md mx-4">
-            <h3 className="text-xl font-bold text-surface-950 mb-4">Create Workspace</h3>
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-surface-800 mb-1.5">Name</label>
-              <input
-                type="text"
-                value={newName}
-                onChange={e => setNewName(e.target.value)}
-                placeholder="e.g. Q1 Vendor Contract Review"
-                className="w-full px-4 py-2.5 rounded-xl bg-surface-200 border border-white/5 text-surface-950 placeholder-surface-600 focus:outline-none focus:border-primary-500 transition-colors"
-                autoFocus
-              />
-            </div>
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-surface-800 mb-1.5">Description (optional)</label>
-              <textarea
-                value={newDesc}
-                onChange={e => setNewDesc(e.target.value)}
-                placeholder="Brief description of this workspace..."
-                rows={3}
-                className="w-full px-4 py-2.5 rounded-xl bg-surface-200 border border-white/5 text-surface-950 placeholder-surface-600 focus:outline-none focus:border-primary-500 transition-colors resize-none"
-              />
-            </div>
-            <div className="flex gap-3 justify-end">
-              <button type="button" onClick={() => setShowCreate(false)} className="px-4 py-2.5 rounded-xl text-sm font-medium text-surface-800 hover:bg-surface-300 transition-colors cursor-pointer">
-                Cancel
-              </button>
-              <button type="submit" className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-primary-600 to-accent-600 text-white text-sm font-medium shadow-lg shadow-primary-500/25 hover:shadow-primary-500/40 transition-shadow cursor-pointer">
-                Create
-              </button>
-            </div>
-          </form>
+      {/* Workspace Listing */}
+      <section className="space-y-4 pt-2">
+        <div className="flex items-center justify-between">
+          <h2 className="font-heading text-2xl text-[var(--text-primary)]">Workspaces</h2>
+          <span className="text-xs text-[var(--text-muted)]">{workspaces.length} workspace(s) available</span>
         </div>
-      )}
 
-      {/* Workspace grid */}
-      <section>
-        <h2 className="text-xl font-bold text-surface-950 mb-4">Workspaces</h2>
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+          <div className="flex items-center justify-center py-16">
+            <Loader2 className="w-7 h-7 text-[var(--text-muted)] animate-spin" />
           </div>
         ) : workspaces.length === 0 ? (
-          <div className="glass-card p-12 text-center">
-            <FolderOpen className="w-12 h-12 text-surface-500 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-surface-800 mb-2">No workspaces yet</h3>
-            <p className="text-sm text-surface-600">Create your first workspace to start uploading documents and meetings.</p>
+          <div className="app-card p-12 text-center">
+            <FolderOpen className="w-10 h-10 text-[var(--text-muted)] mx-auto mb-3 opacity-60" />
+            <h3 className="font-heading text-xl text-[var(--text-primary)] mb-1">No workspaces created yet</h3>
+            <p className="text-xs text-[var(--text-secondary)] mb-4 max-w-sm mx-auto">
+              Create a workspace to start ingesting PDFs, capturing audio recordings, and extracting action items.
+            </p>
+            <button
+              onClick={() => setShowCreate(true)}
+              className="btn-dark px-4 py-2 text-xs inline-flex items-center gap-2 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" /> Create First Workspace
+            </button>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {workspaces.map((ws) => (
               <Link key={ws.id} to={`/workspace/${ws.id}`} className="group">
-                <div className="glass-card p-6 h-full">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500/20 to-accent-500/20 border border-primary-500/30 flex items-center justify-center">
-                      <Layers className="w-5 h-5 text-primary-400" />
+                <div className="app-card p-5 h-full flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="w-9 h-9 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-subtle)] flex items-center justify-center">
+                        <Layers className="w-4 h-4 text-[var(--text-primary)]" />
+                      </div>
+                      <ArrowRight className="w-4 h-4 text-[var(--text-muted)] group-hover:text-[var(--text-primary)] group-hover:translate-x-1 transition-all" />
                     </div>
-                    <ArrowRight className="w-4 h-4 text-surface-600 group-hover:text-primary-400 group-hover:translate-x-1 transition-all" />
+                    <h3 className="font-heading text-xl text-[var(--text-primary)] mb-1 group-hover:underline">{ws.name}</h3>
+                    {ws.description && (
+                      <p className="text-xs text-[var(--text-secondary)] mb-4 line-clamp-2">{ws.description}</p>
+                    )}
                   </div>
-                  <h3 className="font-semibold text-surface-950 mb-1 group-hover:text-primary-400 transition-colors">{ws.name}</h3>
-                  {ws.description && (
-                    <p className="text-sm text-surface-600 mb-4 line-clamp-2">{ws.description}</p>
-                  )}
-                  <div className="flex gap-4 text-xs text-surface-600">
+                  <div className="flex items-center gap-4 pt-3 border-t border-[var(--border-subtle)] text-xs text-[var(--text-muted)]">
                     <span className="flex items-center gap-1.5">
                       <FileText className="w-3.5 h-3.5" /> {ws.document_count || 0} docs
                     </span>
@@ -244,6 +201,51 @@ export default function DashboardPage() {
           </div>
         )}
       </section>
+
+      {/* Create Workspace Modal */}
+      {showCreate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <form onSubmit={handleCreate} className="app-card p-6 w-full max-w-md bg-[var(--bg-card)] shadow-2xl">
+            <h3 className="font-heading text-2xl text-[var(--text-primary)] mb-4">Create New Workspace</h3>
+            <div className="mb-4">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5">Workspace Name</label>
+              <input
+                type="text"
+                value={newName}
+                onChange={e => setNewName(e.target.value)}
+                placeholder="e.g. Q3 Strategic Planning"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] transition-colors"
+                autoFocus
+              />
+            </div>
+            <div className="mb-6">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5">Description (optional)</label>
+              <textarea
+                value={newDesc}
+                onChange={e => setNewDesc(e.target.value)}
+                placeholder="Context or goals for this workspace..."
+                rows={3}
+                className="w-full px-3.5 py-2.5 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] transition-colors resize-none"
+              />
+            </div>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setShowCreate(false)}
+                className="px-4 py-2 rounded-xl text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-card-hover)] transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="btn-dark px-5 py-2 text-xs font-medium cursor-pointer"
+              >
+                Create Workspace
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

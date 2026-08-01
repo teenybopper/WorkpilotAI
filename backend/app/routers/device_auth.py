@@ -1,144 +1,129 @@
-"""Device auth router — pair, list, verify, and revoke local companion devices."""
+"""Device auth router — stub endpoints for local companion pairing and verification."""
 
 import logging
-import uuid
-import hashlib
-import secrets
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime
+from typing import Optional
+from uuid import UUID, uuid4
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import DeviceToken, MeetingSession, SessionStatus
-from app.routers.auth import get_current_user
-from app.schemas import (
-    DevicePairRequest, DevicePairResponse, DeviceTokenResponse,
-    DeviceVerifyRequest, DeviceVerifyResponse, LocalCompanionStatusResponse,
-    SessionStatusEnum,
-)
+from app.models import MeetingSession, SessionStatus
+from app.routers.auth import get_local_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/devices", tags=["Device Auth"])
 
 
+# ── Schemas ───────────────────────────────────────────────────────────────
+
+class DevicePairRequest(BaseModel):
+    device_name: str
+    device_platform: str
+
+
+class DevicePairResponse(BaseModel):
+    device_id: str
+    device_token: str
+    device_name: str
+    device_platform: str
+    created_at: datetime
+
+
+class DeviceVerifyRequest(BaseModel):
+    device_token: str
+
+
+class DeviceVerifyResponse(BaseModel):
+    valid: bool
+    device_id: Optional[str] = None
+    user_id: Optional[str] = None
+
+
+class LocalCompanionStatusResponse(BaseModel):
+    paired: bool
+    device_id: Optional[str] = None
+    device_name: Optional[str] = None
+    device_platform: Optional[str] = None
+    is_active: Optional[bool] = None
+    last_seen_at: Optional[datetime] = None
+    active_session_id: Optional[str] = None
+    active_session_status: Optional[str] = None
+
+
+# ── Endpoints ─────────────────────────────────────────────────────────────
+
+# Constant token and UUID for the local-only single user companion
+LOCAL_DEVICE_ID = "00000000-0000-0000-0000-000000000000"
+LOCAL_TOKEN = "local-companion-token"
+
+
 @router.post("/pair", response_model=DevicePairResponse)
 async def pair_device(
     request: DevicePairRequest,
-    user=Depends(get_current_user),
-    db: Session = Depends(get_db),
+    user=Depends(get_local_user),
 ):
-    """Pair a local companion device with the current user's account.
-
-    Device starts as PENDING (is_active=False). It only becomes active
-    when the companion app successfully verifies the token via /verify.
-    """
-    raw_token = secrets.token_urlsafe(48)
-    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
-
-    device = DeviceToken(
-        user_id=user.id,
+    """Pair the local companion device."""
+    logger.info(f"Pairing local companion: {request.device_name} ({request.device_platform})")
+    return DevicePairResponse(
+        device_id=LOCAL_DEVICE_ID,
+        device_token=LOCAL_TOKEN,
         device_name=request.device_name,
         device_platform=request.device_platform,
-        token_hash=token_hash,
-        is_active=False,  # Pending until companion verifies
-    )
-    db.add(device)
-    db.commit()
-    db.refresh(device)
-
-    logger.info(f"Device paired (pending): {device.device_name} ({device.device_platform}) for {user.email}")
-    return DevicePairResponse(
-        device_id=device.id,
-        device_token=raw_token,
-        device_name=device.device_name,
-        device_platform=device.device_platform,
-        created_at=device.created_at,
+        created_at=datetime.utcnow(),
     )
 
 
-@router.get("", response_model=list[DeviceTokenResponse])
+@router.get("")
 async def list_devices(
-    user=Depends(get_current_user),
-    db: Session = Depends(get_db),
+    user=Depends(get_local_user),
 ):
-    """List all paired devices for the current user."""
-    devices = db.query(DeviceToken).filter(
-        DeviceToken.user_id == user.id,
-    ).order_by(DeviceToken.created_at.desc()).all()
-    return devices
+    """List paired devices (returns the local companion)."""
+    return [
+        {
+            "id": LOCAL_DEVICE_ID,
+            "device_name": "Local Companion",
+            "device_platform": "local",
+            "is_active": True,
+            "created_at": datetime.utcnow(),
+            "last_seen_at": datetime.utcnow(),
+        }
+    ]
 
 
 @router.delete("/{device_id}")
 async def revoke_device(
-    device_id: uuid.UUID,
-    user=Depends(get_current_user),
-    db: Session = Depends(get_db),
+    device_id: str,
+    user=Depends(get_local_user),
 ):
-    """Revoke (deactivate) a paired device."""
-    device = db.query(DeviceToken).filter(
-        DeviceToken.id == device_id,
-        DeviceToken.user_id == user.id,
-    ).first()
-    if not device:
-        raise HTTPException(status_code=404, detail="Device not found")
-
-    device.is_active = False
-    db.commit()
-    logger.info(f"Device revoked: {device.device_name} for {user.email}")
-    return {"message": "Device revoked", "device_id": str(device_id)}
+    """Revoke a paired device."""
+    logger.info(f"Revoking companion device {device_id}")
+    return {"message": "Device revoked", "device_id": device_id}
 
 
 @router.post("/verify", response_model=DeviceVerifyResponse)
 async def verify_device(
     request: DeviceVerifyRequest,
-    db: Session = Depends(get_db),
+    user=Depends(get_local_user),
 ):
-    """Verify a device token (used by companion app on startup).
-
-    On first successful verification, activates the device (pending → active).
-    This ensures devices only show as active after the companion app confirms.
-    """
-    token_hash = hashlib.sha256(request.device_token.encode()).hexdigest()
-    device = db.query(DeviceToken).filter(
-        DeviceToken.token_hash == token_hash,
-    ).first()
-
-    if not device:
-        return DeviceVerifyResponse(valid=False)
-
-    from datetime import datetime
-
-    # Activate device on first successful verification
-    if not device.is_active:
-        device.is_active = True
-        logger.info(f"Device activated via verify: {device.device_name}")
-
-    device.last_seen_at = datetime.utcnow()
-    db.commit()
-
+    """Verify the device token."""
+    valid = request.device_token == LOCAL_TOKEN
     return DeviceVerifyResponse(
-        valid=True,
-        device_id=device.id,
-        user_id=device.user_id,
+        valid=valid,
+        device_id=LOCAL_DEVICE_ID if valid else None,
+        user_id=str(user.id) if valid else None,
     )
 
 
 @router.get("/companion-status", response_model=LocalCompanionStatusResponse)
 async def get_companion_status(
-    user=Depends(get_current_user),
+    user=Depends(get_local_user),
     db: Session = Depends(get_db),
 ):
-    """Get the local companion status for dashboard display."""
-    device = db.query(DeviceToken).filter(
-        DeviceToken.user_id == user.id,
-        DeviceToken.is_active == True,
-    ).order_by(DeviceToken.last_seen_at.desc().nullslast()).first()
-
-    if not device:
-        return LocalCompanionStatusResponse(paired=False)
-
-    # Check for active sessions from this device
+    """Get the local companion status for the web dashboard."""
+    # Check for active listening sessions
     active_session = db.query(MeetingSession).filter(
-        MeetingSession.device_id == device.id,
         MeetingSession.status.in_([
             SessionStatus.LISTENING,
             SessionStatus.PENDING,
@@ -147,11 +132,11 @@ async def get_companion_status(
 
     return LocalCompanionStatusResponse(
         paired=True,
-        device_id=device.id,
-        device_name=device.device_name,
-        device_platform=device.device_platform,
-        is_active=device.is_active,
-        last_seen_at=device.last_seen_at,
-        active_session_id=active_session.id if active_session else None,
-        active_session_status=SessionStatusEnum(active_session.status.value) if active_session else None,
+        device_id=LOCAL_DEVICE_ID,
+        device_name="Local Companion",
+        device_platform="local",
+        is_active=True,
+        last_seen_at=datetime.utcnow(),
+        active_session_id=str(active_session.id) if active_session else None,
+        active_session_status=active_session.status.value if active_session else None,
     )

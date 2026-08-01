@@ -11,7 +11,7 @@ from app.schemas import (
     MeetingSessionCreate, MeetingSessionResponse,
     MeetingSessionTranscriptSubmit,
 )
-from app.services.entitlements import get_default_user
+from app.services.auth import get_or_create_local_user
 from app.services.meetops_sessions import (
     start_session, stop_session, submit_transcript,
     get_session, list_sessions,
@@ -27,7 +27,7 @@ async def start_meeting_session(
     db: Session = Depends(get_db),
 ):
     """Start a new MeetOps capture session (business bot-join or personal listener)."""
-    user = get_default_user(db)
+    user = get_or_create_local_user(db)
 
     try:
         session = start_session(

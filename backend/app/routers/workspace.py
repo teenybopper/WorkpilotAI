@@ -1,13 +1,12 @@
-"""Workspace / Copilot API router — workspace management, cross-source Q&A, case summaries."""
+"""Workspace API router — workspace management, cross-source Q&A, case summaries."""
 
 import uuid
 import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func
 
 from app.database import get_db
-from app.models import Workspace, Source, Task, Decision, RiskFlag, SourceType, TaskStatus
+from app.models import Workspace, Source, Task, Decision, RiskFlag, SourceType
 from app.schemas import (
     WorkspaceCreate, WorkspaceResponse, WorkspaceDetailResponse,
     WorkspaceQueryRequest, WorkspaceQueryResponse,
@@ -17,8 +16,7 @@ from app.schemas import (
 from app.services.intelligence import (
     cross_source_query, detect_conflicts, generate_case_summary,
 )
-from app.routers.auth import get_current_user
-from app.services.auth import get_user_org
+from app.routers.auth import get_local_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/workspaces", tags=["Workspaces"])
@@ -27,16 +25,14 @@ router = APIRouter(prefix="/api/workspaces", tags=["Workspaces"])
 @router.post("", response_model=WorkspaceResponse)
 async def create_workspace(
     request: WorkspaceCreate,
-    user = Depends(get_current_user),
+    user=Depends(get_local_user),
     db: Session = Depends(get_db),
 ):
     """Create a new workspace."""
-    org = get_user_org(db, user.id)
     workspace = Workspace(
-        name=request.name, 
+        name=request.name,
         description=request.description,
         owner_id=user.id,
-        org_id=org.id if org else None
     )
     db.add(workspace)
     db.commit()
@@ -52,13 +48,11 @@ async def create_workspace(
 
 
 @router.get("", response_model=list[WorkspaceResponse])
-async def list_workspaces(user=Depends(get_current_user), db: Session = Depends(get_db)):
+async def list_workspaces(user=Depends(get_local_user), db: Session = Depends(get_db)):
     """List all workspaces with source counts."""
-    org = get_user_org(db, user.id)
-    if org:
-        workspaces = db.query(Workspace).filter(Workspace.org_id == org.id).order_by(Workspace.created_at.desc()).all()
-    else:
-        workspaces = db.query(Workspace).filter(Workspace.owner_id == user.id).order_by(Workspace.created_at.desc()).all()
+    workspaces = db.query(Workspace).filter(
+        Workspace.owner_id == user.id
+    ).order_by(Workspace.created_at.desc()).all()
 
     result = []
     for ws in workspaces:
@@ -83,7 +77,6 @@ async def list_workspaces(user=Depends(get_current_user), db: Session = Depends(
 @router.get("/{workspace_id}", response_model=WorkspaceDetailResponse)
 async def get_workspace(
     workspace_id: uuid.UUID,
-    user = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Get detailed workspace info with sources, tasks, decisions, and risks."""
@@ -118,7 +111,6 @@ async def get_workspace(
 @router.delete("/{workspace_id}")
 async def delete_workspace(
     workspace_id: uuid.UUID,
-    user = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Delete a workspace and all its data."""
@@ -176,7 +168,6 @@ async def get_conflicts(
 async def list_tasks(
     workspace_id: uuid.UUID,
     status: str | None = None,
-    user = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """List tasks in a workspace with optional status filter."""

@@ -6,6 +6,18 @@
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
+/// Default sample rate for Whisper-compatible audio capture.
+pub const DEFAULT_SAMPLE_RATE: u32 = 16000;
+
+/// Default channel count (mono) for Whisper-compatible audio capture.
+pub const DEFAULT_CHANNELS: u16 = 1;
+
+/// Fallback sample rate used when a device's native rate cannot be queried.
+pub const FALLBACK_SAMPLE_RATE: u32 = 44100;
+
+/// Fallback channel count used when a device's native channel count cannot be queried.
+pub const FALLBACK_CHANNELS: u16 = 2;
+
 /// Describes an available audio input/output device.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioDevice {
@@ -31,8 +43,8 @@ impl Default for CaptureConfig {
     fn default() -> Self {
         Self {
             device_id: None,
-            sample_rate: 16000,
-            channels: 1,
+            sample_rate: DEFAULT_SAMPLE_RATE,
+            channels: DEFAULT_CHANNELS,
             capture_loopback: true,
             capture_mic: true,
         }
@@ -115,8 +127,8 @@ pub fn list_audio_devices() -> Result<Vec<AudioDevice>, String> {
                     name: name.clone(),
                     is_default: false,
                     is_loopback: false,
-                    sample_rate: config.as_ref().map(|c| c.sample_rate().0).unwrap_or(44100),
-                    channels: config.as_ref().map(|c| c.channels()).unwrap_or(2),
+                    sample_rate: config.as_ref().map(|c| c.sample_rate().0).unwrap_or(FALLBACK_SAMPLE_RATE),
+                    channels: config.as_ref().map(|c| c.channels()).unwrap_or(FALLBACK_CHANNELS),
                 });
             }
         }
@@ -132,8 +144,8 @@ pub fn list_audio_devices() -> Result<Vec<AudioDevice>, String> {
                     name: format!("{} (System Audio)", name),
                     is_default: false,
                     is_loopback: true,
-                    sample_rate: config.as_ref().map(|c| c.sample_rate().0).unwrap_or(44100),
-                    channels: config.as_ref().map(|c| c.channels()).unwrap_or(2),
+                    sample_rate: config.as_ref().map(|c| c.sample_rate().0).unwrap_or(FALLBACK_SAMPLE_RATE),
+                    channels: config.as_ref().map(|c| c.channels()).unwrap_or(FALLBACK_CHANNELS),
                 });
             }
         }

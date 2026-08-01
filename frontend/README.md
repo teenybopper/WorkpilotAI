@@ -1,16 +1,37 @@
-# React + Vite
+# WorkPilot AI — Web Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+The user interface for WorkPilot AI, built with React 19, Vite, and Tailwind CSS v4.
 
-Currently, two official plugins are available:
+## 🚀 Features & Pages
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **Dashboard (`/`)**: Overview of active workspace metrics, recent sources, pending tasks, key decisions, risk flags, and local desktop companion connection status.
+- **DocOps (`/docops`)**: Document processing suite featuring file uploads, Docling Markdown extraction, entity metadata viewer, RAG semantic search, and document version diff tool.
+- **MeetOps (`/meetops`)**: Meeting intelligence hub supporting audio uploads, live desktop listener session controls, speaker-diarized transcript playback, AI meeting summaries, and extracted insights.
+- **ActionOps (`/actions`)**: Agentic workflow hub displaying proposed actions, risk ratings, confidence scores, evidence quotes, payload editing, 1-click approvals, and execution audit history.
+- **Integrations (`/integrations`)**: Tool management page for configuring Jira, Slack, Google Docs, and Email connectors with credentials and API keys.
+- **Settings (`/settings`)**: Local app settings for configuring OpenAI API Key, Hugging Face Token, data directory paths, and workspace preferences.
 
-## React Compiler
+## 🛠 Tech Stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **Framework**: React 19 + Vite 6
+- **Styling**: Tailwind CSS v4
+- **Icons**: Lucide React (`lucide-react`)
+- **Routing**: React Router v7 (`react-router-dom`)
+- **HTTP Client**: Axios (`axios`)
 
-## Expanding the ESLint configuration
+## 💻 Development
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+```bash
+# Install dependencies
+npm install
+
+# Start development server (with HMR)
+npm run dev
+
+# Build production bundle
+npm run build
+
+# Preview production build
+npm run preview
+```
+

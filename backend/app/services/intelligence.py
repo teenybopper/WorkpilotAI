@@ -1,10 +1,12 @@
-"""Shared Intelligence service — cross-source Q&A, conflict detection, case summaries."""
+"""Shared Intelligence service — cross-source Q&A, conflict detection, case summaries.
+
+Uses ChromaDB (embedded) instead of Qdrant for vector storage.
+"""
 
 import logging
 from uuid import UUID
 from sqlalchemy.orm import Session
-from qdrant_client import QdrantClient
-from qdrant_client.models import VectorParams, Distance
+import chromadb
 
 from app.config import settings
 from app.models import (
@@ -17,17 +19,13 @@ from app.utils.llm import llm_complete, llm_json
 logger = logging.getLogger(__name__)
 
 
-def _get_qdrant() -> QdrantClient:
-    return QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
+def _get_chroma():
+    return chromadb.PersistentClient(path=settings.chroma_dir)
 
 
-def _ensure_collection(qdrant: QdrantClient):
-    collections = [c.name for c in qdrant.get_collections().collections]
-    if settings.qdrant_collection not in collections:
-        qdrant.create_collection(
-            collection_name=settings.qdrant_collection,
-            vectors_config=VectorParams(size=384, distance=Distance.COSINE),
-        )
+def _get_collection(chroma_client=None):
+    client = chroma_client or _get_chroma()
+    return client.get_or_create_collection(name=settings.chroma_collection)
 
 
 def cross_source_query(
@@ -40,29 +38,28 @@ def cross_source_query(
     """Cross-source RAG query spanning documents and meetings."""
     query_embedding = generate_embedding(query)
 
-    qdrant = _get_qdrant()
-    _ensure_collection(qdrant)
+    collection = _get_collection()
 
-    # Build filter
-    must_filters = [
-        {"key": "workspace_id", "match": {"value": str(workspace_id)}},
-    ]
+    # Build where filter
+    where_filter = {"workspace_id": str(workspace_id)}
 
-    # Filter by source types if specified
-    if source_types:
-        must_filters.append({
-            "key": "source_type",
-            "match": {"any": source_types},
-        })
+    if source_types and len(source_types) == 1:
+        where_filter["source_type"] = source_types[0]
+    elif source_types and len(source_types) > 1:
+        where_filter = {
+            "$and": [
+                {"workspace_id": str(workspace_id)},
+                {"source_type": {"$in": source_types}},
+            ]
+        }
 
-    results = qdrant.search(
-        collection_name=settings.qdrant_collection,
-        query_vector=query_embedding,
-        query_filter={"must": must_filters},
-        limit=top_k,
+    results = collection.query(
+        query_embeddings=[query_embedding],
+        where=where_filter,
+        n_results=top_k,
     )
 
-    if not results:
+    if not results["ids"][0]:
         return {
             "answer": "No relevant information found in this workspace.",
             "evidence": [],
@@ -72,17 +69,23 @@ def cross_source_query(
     # Build context with source type labels
     context_parts = []
     evidence = []
-    for r in results:
-        source_label = "📄 Document" if r.payload["source_type"] == "document" else "🎙️ Meeting"
+    documents = results["documents"][0]
+    metadatas = results["metadatas"][0]
+    distances = results["distances"][0] if results.get("distances") else [0.0] * len(documents)
+
+    for doc, meta, dist in zip(documents, metadatas, distances):
+        source_label = "📄 Document" if meta.get("source_type") == "document" else "🎙️ Meeting"
         context_parts.append(
-            f"[{source_label} — {r.payload['filename']}]: {r.payload['text']}"
+            f"[{source_label} — {meta.get('filename', 'unknown')}]: {doc}"
         )
+        # ChromaDB returns distance (lower = more similar), convert to score
+        score = max(0.0, 1.0 - dist)
         evidence.append({
-            "source_id": r.payload["source_id"],
-            "source_type": r.payload["source_type"],
-            "filename": r.payload["filename"],
-            "text": r.payload["text"],
-            "relevance_score": round(r.score, 3),
+            "source_id": meta.get("source_id", ""),
+            "source_type": meta.get("source_type", ""),
+            "filename": meta.get("filename", ""),
+            "text": doc,
+            "relevance_score": round(score, 3),
         })
 
     context = "\n\n".join(context_parts)
@@ -102,16 +105,17 @@ Provide a comprehensive answer with clear source citations."""
 
     answer = llm_complete(prompt)
 
+    best_score = max((1.0 - d) for d in distances) if distances else 0.0
+
     return {
         "answer": answer,
         "evidence": evidence,
-        "confidence": round(max(r.score for r in results), 3),
+        "confidence": round(best_score, 3),
     }
 
 
 def detect_conflicts(workspace_id: UUID, db: Session) -> list[dict]:
     """Detect conflicts between documents and meeting statements in a workspace."""
-    # Get all sources in the workspace
     sources = db.query(Source).filter(Source.workspace_id == workspace_id).all()
 
     doc_sources = [s for s in sources if s.source_type == SourceType.DOCUMENT]
@@ -120,49 +124,48 @@ def detect_conflicts(workspace_id: UUID, db: Session) -> list[dict]:
     if not doc_sources or not meeting_sources:
         return []
 
-    # Use cross-source search to find potentially conflicting information
-    qdrant = _get_qdrant()
-    _ensure_collection(qdrant)
+    collection = _get_collection()
 
     # Get document chunks
-    doc_results = qdrant.scroll(
-        collection_name=settings.qdrant_collection,
-        scroll_filter={
-            "must": [
-                {"key": "workspace_id", "match": {"value": str(workspace_id)}},
-                {"key": "source_type", "match": {"value": "document"}},
+    doc_results = collection.get(
+        where={
+            "$and": [
+                {"workspace_id": str(workspace_id)},
+                {"source_type": "document"},
             ]
         },
         limit=20,
     )
 
-    doc_chunks = doc_results[0] if doc_results else []
-
-    if not doc_chunks:
+    if not doc_results["ids"]:
         return []
 
-    # For each key doc chunk, find related meeting content
     conflicts = []
-    for doc_point in doc_chunks[:10]:  # Limit to avoid too many LLM calls
-        doc_text = doc_point.payload["text"]
+    for i, doc_text in enumerate(doc_results["documents"][:10]):
+        doc_meta = doc_results["metadatas"][i]
         doc_embedding = generate_embedding(doc_text)
 
-        meeting_results = qdrant.search(
-            collection_name=settings.qdrant_collection,
-            query_vector=doc_embedding,
-            query_filter={
-                "must": [
-                    {"key": "workspace_id", "match": {"value": str(workspace_id)}},
-                    {"key": "source_type", "match": {"value": "meeting"}},
+        # Find related meeting content
+        meeting_results = collection.query(
+            query_embeddings=[doc_embedding],
+            where={
+                "$and": [
+                    {"workspace_id": str(workspace_id)},
+                    {"source_type": "meeting"},
                 ]
             },
-            limit=3,
+            n_results=3,
         )
 
-        if not meeting_results or meeting_results[0].score < 0.5:
+        if not meeting_results["ids"][0]:
             continue
 
-        meeting_text = meeting_results[0].payload["text"]
+        # Check similarity (distance < 0.5 means reasonably similar)
+        if meeting_results["distances"][0][0] > 0.5:
+            continue
+
+        meeting_text = meeting_results["documents"][0][0]
+        meeting_meta = meeting_results["metadatas"][0][0]
 
         # Ask LLM to check for conflicts
         conflict_check = llm_json(f"""Compare these two pieces of information and determine if there is a conflict.
@@ -180,9 +183,9 @@ Return a JSON object with:
 
         if conflict_check.get("has_conflict"):
             conflicts.append({
-                "document_source": doc_point.payload["filename"],
+                "document_source": doc_meta.get("filename", ""),
                 "document_text": doc_text,
-                "meeting_source": meeting_results[0].payload["filename"],
+                "meeting_source": meeting_meta.get("filename", ""),
                 "meeting_text": meeting_text,
                 "description": conflict_check.get("conflict_description", ""),
                 "severity": conflict_check.get("severity", "medium"),

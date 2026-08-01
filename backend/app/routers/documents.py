@@ -15,7 +15,7 @@ from app.services.docops import (
     parse_document, extract_entities, index_document_chunks,
     compare_documents, query_documents,
 )
-from app.utils.storage import upload_file, ensure_bucket
+from app.utils.storage import save_file
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/documents", tags=["Documents"])
@@ -28,28 +28,30 @@ async def upload_document(
     db: Session = Depends(get_db),
 ):
     """Upload a document file (PDF, DOCX, PPTX) to a workspace."""
-    ensure_bucket()
-
-    # Validate file type
-    allowed_types = {
-        "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        "text/plain", "text/markdown",
-    }
-    content_type = file.content_type or "application/octet-stream"
-
     # Read file content
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="Empty file")
 
-    # Upload to MinIO
-    object_name = f"documents/{workspace_id}/{uuid.uuid4()}_{file.filename}"
-    storage_path = upload_file(object_name, content, content_type)
+    # Enforce per-route document size limit (50 MB)
+    MAX_DOCUMENT_SIZE = 50 * 1024 * 1024
+    if len(content) > MAX_DOCUMENT_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Document exceeds {MAX_DOCUMENT_SIZE // (1024 * 1024)} MB limit. "
+                   "Please split large documents into smaller files.",
+        )
+
+    content_type = file.content_type or "application/octet-stream"
+    source_id = str(uuid.uuid4())
+
+    # Save to local filesystem
+    storage_path = save_file(workspace_id, source_id, file.filename, content)
 
     # Create source record
     source = Source(
-        workspace_id=uuid.UUID(workspace_id),
+        id=source_id,
+        workspace_id=workspace_id,
         source_type=SourceType.DOCUMENT,
         filename=file.filename,
         storage_path=storage_path,
@@ -88,7 +90,7 @@ async def extract_document(
         # Extract entities
         entities = extract_entities(source, doc_version, db)
 
-        # Index chunks in Qdrant
+        # Index chunks in ChromaDB
         index_document_chunks(source, doc_version)
 
         return {

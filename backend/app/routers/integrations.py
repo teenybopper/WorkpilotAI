@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import ConnectedTool, ToolStatus
 from app.schemas import ConnectedToolCreate, ConnectedToolResponse, AvailableToolInfo
-from app.services.entitlements import get_default_user, check_feature_limit
+from app.services.auth import get_or_create_local_user
 from app.services.mcp.registry import list_available_tools, get_adapter
 
 logger = logging.getLogger(__name__)
@@ -26,8 +26,8 @@ async def get_available_tools():
 async def get_connected_tools(
     db: Session = Depends(get_db),
 ):
-    """List all tools connected by the current user."""
-    user = get_default_user(db)
+    """List all tools connected by the local user."""
+    user = get_or_create_local_user(db)
     tools = db.query(ConnectedTool).filter(
         ConnectedTool.user_id == user.id
     ).order_by(ConnectedTool.created_at.desc()).all()
@@ -52,21 +52,8 @@ async def connect_tool(
     request: ConnectedToolCreate,
     db: Session = Depends(get_db),
 ):
-    """Connect a new MCP tool."""
-    user = get_default_user(db)
-
-    # Check entitlement limit
-    max_tools = check_feature_limit(user, "max_connected_tools")
-    if max_tools > 0:
-        current_count = db.query(ConnectedTool).filter(
-            ConnectedTool.user_id == user.id,
-            ConnectedTool.status == ToolStatus.CONNECTED,
-        ).count()
-        if current_count >= max_tools:
-            raise HTTPException(
-                status_code=403,
-                detail=f"Your plan allows a maximum of {max_tools} connected tools"
-            )
+    """Connect a new MCP tool (no plan limits in local mode)."""
+    user = get_or_create_local_user(db)
 
     # Get adapter to discover capabilities
     try:
@@ -112,7 +99,7 @@ async def disconnect_tool(
     db: Session = Depends(get_db),
 ):
     """Disconnect a tool."""
-    user = get_default_user(db)
+    user = get_or_create_local_user(db)
     tool = db.query(ConnectedTool).filter(
         ConnectedTool.id == tool_id,
         ConnectedTool.user_id == user.id,

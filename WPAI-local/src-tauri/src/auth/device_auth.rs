@@ -10,6 +10,9 @@ const KEYRING_SERVICE: &str = "workpilot-companion";
 const KEYRING_USERNAME: &str = "device-token";
 const BACKEND_BASE_URL_KEY: &str = "backend-url";
 
+/// Default backend URL used when no URL has been stored via pairing.
+const DEFAULT_BACKEND_URL: &str = "http://localhost:8000";
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PairRequest {
     pub device_name: String,
@@ -69,7 +72,7 @@ pub fn get_backend_url() -> String {
     let entry = keyring::Entry::new(KEYRING_SERVICE, BACKEND_BASE_URL_KEY).ok();
     entry
         .and_then(|e| e.get_password().ok())
-        .unwrap_or_else(|| "http://localhost:8000".to_string())
+        .unwrap_or_else(|| DEFAULT_BACKEND_URL.to_string())
 }
 
 /// Get the stored device token (for API calls).

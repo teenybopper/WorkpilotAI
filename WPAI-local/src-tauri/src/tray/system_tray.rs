@@ -6,29 +6,47 @@
 //! - Red: Error / disconnected
 
 use log::info;
-use tauri::{App, Manager};
+use tauri::{
+    menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem},
+    tray::TrayIconEvent,
+    App, Manager,
+};
 
 /// Set up the system tray icon and menu.
 pub fn setup_tray(app: &App) -> Result<(), Box<dyn std::error::Error>> {
-    info!("System tray initialized");
+    // Build the tray context menu
+    let show_item = MenuItemBuilder::with_id("show", "Open WorkPilot Companion").build(app)?;
+    let feedback_item =
+        MenuItemBuilder::with_id("feedback", "Report Bug / Feedback").build(app)?;
+    let separator = PredefinedMenuItem::separator(app)?;
+    let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
 
-    // NOTE: In Tauri v2, tray icons are configured via tauri.conf.json
-    // and can be dynamically updated using app.tray_by_id().
-    //
-    // The tray menu would include:
-    // - "WorkPilot Companion" (title, disabled)
-    // - Separator
-    // - "Start Listening" / "Stop Listening" (toggle)
-    // - "Open Dashboard" (opens main window)
-    // - "Settings" (audio device selection)
-    // - Separator
-    // - "Quit"
-    //
-    // Menu clicks are handled via:
-    //   tray.on_menu_event(|app, event| { ... })
-    //
-    // Icon changes are done via:
-    //   tray.set_icon(Some(icon)) / set_tooltip(...)
+    let menu = MenuBuilder::new(app)
+        .items(&[&show_item, &feedback_item, &separator, &quit_item])
+        .build()?;
 
+    // Attach the menu to the tray icon
+    if let Some(tray) = app.tray_by_id("main") {
+        tray.set_menu(Some(menu))?;
+        tray.set_tooltip(Some("WorkPilot Companion — On-Device Audio Capture"))?;
+
+        tray.on_menu_event(move |app, event| match event.id().as_ref() {
+            "show" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+            "feedback" => {
+                let _ = open::that("https://github.com/teenybopper/workpilotAI/issues");
+            }
+            "quit" => {
+                app.exit(0);
+            }
+            _ => {}
+        });
+    }
+
+    info!("System tray initialized with menu");
     Ok(())
 }

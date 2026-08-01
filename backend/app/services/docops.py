@@ -1,45 +1,42 @@
-"""DocOps service — document parsing, extraction, comparison, and query."""
+"""DocOps service — document parsing, extraction, comparison, and query.
+
+Uses ChromaDB (embedded) instead of Qdrant for vector storage.
+Uses local filesystem instead of MinIO for file storage.
+"""
 
 import logging
 import os
 import json
+import uuid
 import difflib
 from uuid import UUID
 from sqlalchemy.orm import Session
-from qdrant_client import QdrantClient
-from qdrant_client.models import PointStruct, VectorParams, Distance
+import chromadb
 
 from app.config import settings
 from app.models import Source, DocumentVersion, Entity, SourceStatus
-from app.utils.storage import download_file, get_temp_path
+from app.utils.storage import get_file_path
 from app.utils.embeddings import generate_embeddings, generate_embedding, chunk_text
 from app.utils.llm import llm_complete, llm_json
 
 logger = logging.getLogger(__name__)
 
 
-def _get_qdrant() -> QdrantClient:
-    return QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
+def _get_chroma():
+    return chromadb.PersistentClient(path=settings.chroma_dir)
 
 
-def _ensure_collection(qdrant: QdrantClient):
-    """Create the Qdrant collection if it doesn't exist."""
-    collections = [c.name for c in qdrant.get_collections().collections]
-    if settings.qdrant_collection not in collections:
-        qdrant.create_collection(
-            collection_name=settings.qdrant_collection,
-            vectors_config=VectorParams(size=384, distance=Distance.COSINE),
-        )
-        logger.info(f"Created Qdrant collection: {settings.qdrant_collection}")
+def _get_collection(chroma_client=None):
+    client = chroma_client or _get_chroma()
+    return client.get_or_create_collection(name=settings.chroma_collection)
 
 
 def parse_document(source: Source, db: Session) -> DocumentVersion:
     """Parse a document using Docling and store the extracted version."""
     from docling.document_converter import DocumentConverter
 
-    # Download file from MinIO to temp path
-    object_name = source.storage_path.split("/", 1)[1]  # Remove bucket prefix
-    local_path = get_temp_path(object_name)
+    # Get file path from local storage
+    local_path = get_file_path(source.storage_path)
 
     try:
         converter = DocumentConverter()
@@ -81,10 +78,6 @@ def parse_document(source: Source, db: Session) -> DocumentVersion:
         db.commit()
         logger.error(f"Failed to parse document {source.filename}: {e}")
         raise
-    finally:
-        # Cleanup temp file
-        if os.path.exists(local_path):
-            os.remove(local_path)
 
 
 def extract_entities(source: Source, doc_version: DocumentVersion, db: Session) -> list[Entity]:
@@ -129,7 +122,7 @@ Return the JSON object with the "entities" array."""
 
 
 def index_document_chunks(source: Source, doc_version: DocumentVersion):
-    """Chunk document text, generate embeddings, and store in Qdrant."""
+    """Chunk document text, generate embeddings, and store in ChromaDB."""
     text = doc_version.extracted_text
     if not text:
         return
@@ -140,27 +133,33 @@ def index_document_chunks(source: Source, doc_version: DocumentVersion):
 
     embeddings = generate_embeddings(chunks)
 
-    qdrant = _get_qdrant()
-    _ensure_collection(qdrant)
+    collection = _get_collection()
 
-    import uuid
-    points = []
+    ids = []
+    documents = []
+    emb_list = []
+    metadatas = []
+
     for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-        points.append(PointStruct(
-            id=str(uuid.uuid4()),
-            vector=embedding,
-            payload={
-                "text": chunk,
-                "source_id": str(source.id),
-                "workspace_id": str(source.workspace_id),
-                "source_type": "document",
-                "filename": source.filename,
-                "chunk_index": i,
-            },
-        ))
+        chunk_id = str(uuid.uuid4())
+        ids.append(chunk_id)
+        documents.append(chunk)
+        emb_list.append(embedding)
+        metadatas.append({
+            "source_id": str(source.id),
+            "workspace_id": str(source.workspace_id),
+            "source_type": "document",
+            "filename": source.filename,
+            "chunk_index": i,
+        })
 
-    qdrant.upsert(collection_name=settings.qdrant_collection, points=points)
-    logger.info(f"Indexed {len(points)} chunks from {source.filename}")
+    collection.add(
+        ids=ids,
+        documents=documents,
+        embeddings=emb_list,
+        metadatas=metadatas,
+    )
+    logger.info(f"Indexed {len(ids)} chunks from {source.filename}")
 
 
 def compare_documents(source_a: Source, source_b: Source, db: Session) -> dict:
@@ -215,27 +214,25 @@ Provide a JSON response with:
 
 
 def query_documents(workspace_id: UUID, query: str, top_k: int, db: Session) -> dict:
-    """RAG-based query over workspace documents."""
+    """RAG-based query over workspace documents using ChromaDB."""
     # Generate query embedding
     query_embedding = generate_embedding(query)
 
-    # Search Qdrant
-    qdrant = _get_qdrant()
-    _ensure_collection(qdrant)
+    collection = _get_collection()
 
-    results = qdrant.search(
-        collection_name=settings.qdrant_collection,
-        query_vector=query_embedding,
-        query_filter={
-            "must": [
-                {"key": "workspace_id", "match": {"value": str(workspace_id)}},
-                {"key": "source_type", "match": {"value": "document"}},
+    # Search ChromaDB
+    results = collection.query(
+        query_embeddings=[query_embedding],
+        where={
+            "$and": [
+                {"workspace_id": str(workspace_id)},
+                {"source_type": "document"},
             ]
         },
-        limit=top_k,
+        n_results=top_k,
     )
 
-    if not results:
+    if not results["ids"][0]:
         return {
             "answer": "No relevant documents found in this workspace.",
             "evidence": [],
@@ -245,14 +242,19 @@ def query_documents(workspace_id: UUID, query: str, top_k: int, db: Session) -> 
     # Build context from search results
     context_parts = []
     evidence = []
-    for r in results:
-        context_parts.append(f"[{r.payload['filename']}]: {r.payload['text']}")
+    documents = results["documents"][0]
+    metadatas = results["metadatas"][0]
+    distances = results["distances"][0] if results.get("distances") else [0.0] * len(documents)
+
+    for doc, meta, dist in zip(documents, metadatas, distances):
+        context_parts.append(f"[{meta.get('filename', 'unknown')}]: {doc}")
+        score = max(0.0, 1.0 - dist)
         evidence.append({
-            "source_id": r.payload["source_id"],
-            "source_type": r.payload["source_type"],
-            "filename": r.payload["filename"],
-            "text": r.payload["text"],
-            "relevance_score": round(r.score, 3),
+            "source_id": meta.get("source_id", ""),
+            "source_type": meta.get("source_type", ""),
+            "filename": meta.get("filename", ""),
+            "text": doc,
+            "relevance_score": round(score, 3),
         })
 
     context = "\n\n".join(context_parts)
@@ -272,8 +274,10 @@ Provide a clear, accurate answer with document citations."""
 
     answer = llm_complete(prompt)
 
+    best_score = max((1.0 - d) for d in distances) if distances else 0.0
+
     return {
         "answer": answer,
         "evidence": evidence,
-        "confidence": round(max(r.score for r in results), 3) if results else 0.0,
+        "confidence": round(best_score, 3),
     }

@@ -1,62 +1,60 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useParams } from 'react-router-dom';
 import {
-  Mic, Radio, MonitorSpeaker, Play, Square, Clock,
-  CheckCircle2, XCircle, Loader2, AlertTriangle,
-  Video, Sparkles, Shield, Bot, Calendar,
-  BarChart3, ListChecks, MessageSquare, Users, Monitor, Download
+  Mic, Radio, MonitorSpeaker, Play, Square, Upload,
+  Loader2, AlertTriangle, Shield, ListChecks
 } from 'lucide-react';
-import { meetingSessionApi, workspaceApi } from '../lib/api';
+import {
+  getWorkspaces, uploadMeeting, startSession, stopSession, listSessions,
+  transcribeMeeting
+} from '../lib/api';
 
 const MODE_INFO = {
   local_listener: {
     icon: MonitorSpeaker,
-    title: 'Personal Mode',
-    subtitle: 'Listen locally on your device',
-    color: 'from-purple-500 to-pink-500',
-    description: 'Captures audio from your system/browser. The assistant stays on your device — it does not join the meeting room.',
+    title: 'Live Desktop Capture',
+    subtitle: 'On-device system audio & mic',
+    accent: 'border-purple-500/20 text-purple-600 dark:text-purple-400',
+    description: 'Captures system output & microphone directly from your local desktop companion app.',
   },
-  bot_join: {
-    icon: Video,
-    title: 'Business Mode',
-    subtitle: 'Bot joins the meeting room',
-    color: 'from-blue-500 to-cyan-500',
-    description: 'A meeting assistant bot joins the call as a participant. Available on Team and Enterprise plans.',
+  upload: {
+    icon: Upload,
+    title: 'Upload Audio/Video',
+    subtitle: 'WAV, MP3, M4A, OGG, WebM',
+    accent: 'border-blue-500/20 text-blue-600 dark:text-blue-400',
+    description: 'Upload an existing recording file to transcribe and extract meeting insights.',
   },
 };
 
 const STATUS_MAP = {
-  pending: { color: 'text-amber-400', bg: 'bg-amber-500/10', label: 'Pending' },
-  joining: { color: 'text-blue-400', bg: 'bg-blue-500/10', label: 'Joining...' },
-  listening: { color: 'text-emerald-400', bg: 'bg-emerald-500/10', label: 'Listening' },
-  processing: { color: 'text-primary-400', bg: 'bg-primary-500/10', label: 'Processing' },
-  completed: { color: 'text-emerald-400', bg: 'bg-emerald-500/10', label: 'Completed' },
-  failed: { color: 'text-rose-400', bg: 'bg-rose-500/10', label: 'Failed' },
-  cancelled: { color: 'text-surface-500', bg: 'bg-surface-500/10', label: 'Cancelled' },
+  pending: { color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-500/10', label: 'Pending' },
+  listening: { color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-500/10', label: 'Listening' },
+  processing: { color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-500/10', label: 'Processing' },
+  completed: { color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-500/10', label: 'Completed' },
+  failed: { color: 'text-rose-600 dark:text-rose-400', bg: 'bg-rose-500/10', label: 'Failed' },
+  cancelled: { color: 'text-[var(--text-muted)]', bg: 'bg-stone-500/10', label: 'Cancelled' },
 };
 
 export default function MeetOpsPage() {
   const { id: workspaceId } = useParams();
-  const { user, organization } = useAuth();
-  const defaultMode = organization ? 'bot_join' : 'local_listener';
-  const [mode, setMode] = useState(defaultMode);
+  const [mode, setMode] = useState('local_listener');
   const [sessions, setSessions] = useState([]);
   const [workspaces, setWorkspaces] = useState([]);
   const [selectedWs, setSelectedWs] = useState(workspaceId || '');
   const [title, setTitle] = useState('');
-  const [meetingUrl, setMeetingUrl] = useState('');
   const [consent, setConsent] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [uploadFile, setUploadFile] = useState(null);
 
   useEffect(() => { loadWorkspaces(); }, []);
   useEffect(() => { if (selectedWs) loadSessions(); }, [selectedWs]);
 
   const loadWorkspaces = async () => {
     try {
-      const res = await workspaceApi.list();
+      const res = await getWorkspaces();
       setWorkspaces(res.data);
       if (!selectedWs && res.data.length > 0) setSelectedWs(res.data[0].id);
     } catch (err) { console.error(err); }
@@ -65,7 +63,7 @@ export default function MeetOpsPage() {
   const loadSessions = async () => {
     setLoading(true);
     try {
-      const res = await meetingSessionApi.list(selectedWs);
+      const res = await listSessions(selectedWs);
       setSessions(res.data);
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
@@ -73,22 +71,18 @@ export default function MeetOpsPage() {
 
   const handleStart = async () => {
     if (!selectedWs) return setError('Select a workspace first');
-    if (!consent) return setError('You must give consent to capture audio');
-    if (mode === 'bot_join' && !meetingUrl) return setError('Meeting URL is required for bot mode');
+    if (!consent) return setError('Consent is required for local audio capture');
 
     setStarting(true);
     setError('');
     try {
-      await meetingSessionApi.start({
+      await startSession({
         workspace_id: selectedWs,
         capture_mode: mode,
         title: title || undefined,
-        meeting_url: mode === 'bot_join' ? meetingUrl : undefined,
         consent_given: consent,
-        platform: mode === 'bot_join' ? undefined : 'system_audio',
       });
       setTitle('');
-      setMeetingUrl('');
       setConsent(false);
       loadSessions();
     } catch (err) {
@@ -98,65 +92,80 @@ export default function MeetOpsPage() {
     }
   };
 
+  const handleUpload = async () => {
+    if (!selectedWs) return setError('Select a workspace first');
+    if (!uploadFile) return setError('Select a file to upload');
+
+    setUploading(true);
+    setError('');
+    try {
+      const uploadRes = await uploadMeeting(selectedWs, uploadFile);
+      const sourceId = uploadRes.data.id;
+      await transcribeMeeting(sourceId);
+      setUploadFile(null);
+      loadSessions();
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleStop = async (sessionId) => {
-    try { await meetingSessionApi.stop(sessionId); loadSessions(); }
+    try { await stopSession(sessionId); loadSessions(); }
     catch (err) { console.error(err); }
   };
 
   const modeConfig = MODE_INFO[mode];
   const completedSessions = sessions.filter(s => s.status === 'completed');
-  const activeSessions = sessions.filter(s => ['listening', 'joining', 'pending'].includes(s.status));
+  const activeSessions = sessions.filter(s => ['listening', 'pending'].includes(s.status));
 
   return (
-    <div className="max-w-6xl mx-auto px-6 py-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-extrabold text-surface-950 tracking-tight mb-1">MeetOps</h1>
-        <p className="text-surface-600">Your AI meeting assistant — joins meetings, transcribes, and extracts action items.</p>
+    <div className="space-y-8">
+      {/* Header */}
+      <div className="border-b border-[var(--border-subtle)] pb-4">
+        <h1 className="font-heading text-3xl text-[var(--text-primary)] mb-1">MeetOps</h1>
+        <p className="text-sm text-[var(--text-secondary)]">Record, transcribe, diarize speakers, and extract actionable insights.</p>
       </div>
 
-      {/* Bot status & insights strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-8">
-        <div className="glass-card p-4 flex items-center gap-3 sm:col-span-2">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center shadow-lg">
-            <Bot className="w-5 h-5 text-white" />
-          </div>
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-surface-950">WorkPilot Meeting Bot</p>
-            <p className="text-xs text-surface-600">
-              {activeSessions.length > 0
-                ? <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> {activeSessions.length} active session{activeSessions.length > 1 ? 's' : ''}</span>
-                : 'Ready to join your next meeting'
-              }
-            </p>
-          </div>
-        </div>
-        <div className="glass-card p-4 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center">
-            <Mic className="w-4 h-4 text-purple-400" />
+      {/* Metrics */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="app-card p-4 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-purple-500/10 flex items-center justify-center">
+            <Mic className="w-4 h-4 text-purple-600 dark:text-purple-400" />
           </div>
           <div>
-            <p className="text-lg font-bold text-surface-950">{sessions.length}</p>
-            <p className="text-xs text-surface-600">Total Sessions</p>
+            <p className="font-heading text-2xl text-[var(--text-primary)]">{sessions.length}</p>
+            <p className="text-xs text-[var(--text-muted)]">Total Sessions</p>
           </div>
         </div>
-        <div className="glass-card p-4 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-            <ListChecks className="w-4 h-4 text-emerald-400" />
+        <div className="app-card p-4 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+            <ListChecks className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
           </div>
           <div>
-            <p className="text-lg font-bold text-surface-950">{completedSessions.length}</p>
-            <p className="text-xs text-surface-600">Completed</p>
+            <p className="font-heading text-2xl text-[var(--text-primary)]">{completedSessions.length}</p>
+            <p className="text-xs text-[var(--text-muted)]">Completed</p>
+          </div>
+        </div>
+        <div className="app-card p-4 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-amber-500/10 flex items-center justify-center">
+            <Radio className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+          </div>
+          <div>
+            <p className="font-heading text-2xl text-[var(--text-primary)]">{activeSessions.length}</p>
+            <p className="text-xs text-[var(--text-muted)]">Active Listening</p>
           </div>
         </div>
       </div>
 
-      {/* Workspace selector */}
-      <div className="mb-6">
-        <label className="block text-xs font-semibold text-surface-600 uppercase tracking-wider mb-2">Workspace</label>
+      {/* Workspace Selector */}
+      <div className="flex items-center gap-3">
+        <label className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Workspace:</label>
         <select
           value={selectedWs}
           onChange={(e) => setSelectedWs(e.target.value)}
-          className="px-4 py-2.5 rounded-xl bg-surface-200 border border-white/5 text-surface-950 text-sm focus:outline-none focus:border-primary-500 cursor-pointer"
+          className="px-3.5 py-2 rounded-xl bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-xs font-medium focus:outline-none focus:border-[var(--border-focus)] cursor-pointer"
         >
           <option value="">Select workspace...</option>
           {workspaces.map(ws => (
@@ -165,170 +174,197 @@ export default function MeetOpsPage() {
         </select>
       </div>
 
-      {/* Mode selector */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+      {/* Capture Mode Selector Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {Object.entries(MODE_INFO).map(([key, info]) => (
           <button
             key={key}
             onClick={() => setMode(key)}
-            className={`glass-card p-5 text-left transition-all cursor-pointer ${
-              mode === key ? 'border-primary-500/40 glow-pulse' : ''
+            className={`app-card p-5 text-left transition-all cursor-pointer ${
+              mode === key ? 'border-[var(--btn-dark-bg)] ring-1 ring-[var(--btn-dark-bg)]' : ''
             }`}
           >
-            <div className="flex items-center gap-3 mb-3">
-              <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${info.color} flex items-center justify-center shadow-lg`}>
-                <info.icon className="w-5 h-5 text-white" />
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2.5">
+                <div className={`w-9 h-9 rounded-xl bg-[var(--bg-primary)] border flex items-center justify-center ${info.accent}`}>
+                  <info.icon className="w-4.5 h-4.5" />
+                </div>
+                <div>
+                  <h3 className="font-heading text-lg text-[var(--text-primary)]">{info.title}</h3>
+                  <p className="text-[11px] text-[var(--text-muted)]">{info.subtitle}</p>
+                </div>
               </div>
-              <div>
-                <h3 className="font-semibold text-surface-950">{info.title}</h3>
-                <p className="text-xs text-surface-600">{info.subtitle}</p>
-              </div>
-              {mode === key && <Radio className="w-4 h-4 text-primary-400 ml-auto" />}
+              {mode === key && <Radio className="w-4 h-4 text-emerald-500 animate-pulse" />}
             </div>
-            <p className="text-sm text-surface-700">{info.description}</p>
+            <p className="text-xs text-[var(--text-secondary)] mt-2">{info.description}</p>
           </button>
         ))}
       </div>
 
-      {/* Setup CTA */}
-      {mode === 'local_listener' && (
-        <Link to="/setup/companion" className="glass-card p-4 mb-6 flex items-center gap-3 group border-pink-500/20 hover:border-pink-500/40 transition-all">
-          <div className="w-9 h-9 rounded-xl bg-pink-500/10 border border-pink-500/20 flex items-center justify-center flex-shrink-0">
-            <Monitor className="w-4 h-4 text-pink-400" />
-          </div>
-          <div className="flex-1">
-            <p className="text-sm font-medium text-surface-950 group-hover:text-primary-400 transition-colors">Set up Local Companion</p>
-            <p className="text-xs text-surface-600">Install and pair the desktop app to start capturing audio</p>
-          </div>
-          <Download className="w-4 h-4 text-surface-500 group-hover:text-primary-400 transition-colors" />
-        </Link>
-      )}
-      {mode === 'bot_join' && organization && (
-        <Link to="/setup/bot" className="glass-card p-4 mb-6 flex items-center gap-3 group border-cyan-500/20 hover:border-cyan-500/40 transition-all">
-          <div className="w-9 h-9 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center flex-shrink-0">
-            <Bot className="w-4 h-4 text-cyan-400" />
-          </div>
-          <div className="flex-1">
-            <p className="text-sm font-medium text-surface-950 group-hover:text-primary-400 transition-colors">Configure Bot Service</p>
-            <p className="text-xs text-surface-600">Set up provider connections and service tokens</p>
-          </div>
-        </Link>
-      )}
-
-      {/* Session start form */}
-      <div className="glass-card p-6 mb-8">
-        <h3 className="text-sm font-semibold text-surface-700 uppercase tracking-wider mb-4">
-          Start New Session — {modeConfig.title}
+      {/* Start / Upload Panel */}
+      <div className="app-card p-6">
+        <h3 className="font-heading text-xl text-[var(--text-primary)] mb-4">
+          {mode === 'upload' ? 'Upload Audio File' : `Initiate Live Session — ${modeConfig.title}`}
         </h3>
 
         <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-surface-800 mb-1.5">Session Title (optional)</label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Sprint Planning, 1:1 with Manager"
-              className="w-full px-4 py-2.5 rounded-xl bg-surface-200 border border-white/5 text-surface-950 placeholder-surface-600 focus:outline-none focus:border-primary-500 transition-colors text-sm"
-            />
-          </div>
+          {mode === 'upload' ? (
+            <>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5">Select Audio / Video File</label>
+                <input
+                  type="file"
+                  accept="audio/*,video/*"
+                  onChange={(e) => setUploadFile(e.target.files[0])}
+                  className="w-full px-3.5 py-2 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-xs"
+                />
+                {uploadFile && (
+                  <p className="text-xs text-[var(--text-muted)] mt-1.5">
+                    Selected: <strong className="text-[var(--text-primary)]">{uploadFile.name}</strong> ({(uploadFile.size / 1024 / 1024).toFixed(1)} MB)
+                  </p>
+                )}
+              </div>
 
-          {mode === 'bot_join' && (
-            <div>
-              <label className="block text-sm font-medium text-surface-800 mb-1.5">Meeting URL</label>
-              <input
-                type="url"
-                value={meetingUrl}
-                onChange={(e) => setMeetingUrl(e.target.value)}
-                placeholder="https://zoom.us/j/... or https://meet.google.com/..."
-                className="w-full px-4 py-2.5 rounded-xl bg-surface-200 border border-white/5 text-surface-950 placeholder-surface-600 focus:outline-none focus:border-primary-500 transition-colors text-sm"
-              />
-            </div>
+              {error && (
+                <div className="flex items-center gap-2 text-xs text-rose-500">
+                  <AlertTriangle className="w-4 h-4" /> {error}
+                </div>
+              )}
+
+              <button
+                onClick={handleUpload}
+                disabled={uploading || !selectedWs || !uploadFile}
+                className="btn-dark px-5 py-2.5 text-xs font-medium flex items-center gap-2 cursor-pointer disabled:opacity-40"
+              >
+                {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                {uploading ? 'Transcribing with Whisper...' : 'Upload & Transcribe'}
+              </button>
+            </>
+          ) : (
+            <>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5">Session Title (optional)</label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="e.g. Q3 Design Review, Weekly Sync"
+                  className="w-full px-3.5 py-2 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-primary)] placeholder-[var(--text-muted)] text-xs focus:outline-none focus:border-[var(--border-focus)]"
+                />
+              </div>
+
+              <label className="flex items-start gap-2.5 cursor-pointer pt-1">
+                <input
+                  type="checkbox"
+                  checked={consent}
+                  onChange={(e) => setConsent(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span className="text-xs text-[var(--text-secondary)]">
+                  <Shield className="w-3.5 h-3.5 inline mr-1 text-amber-500" />
+                  I consent to on-device audio capture for this meeting session.
+                </span>
+              </label>
+
+              {error && (
+                <div className="flex items-center gap-2 text-xs text-rose-500">
+                  <AlertTriangle className="w-4 h-4" /> {error}
+                </div>
+              )}
+
+              <button
+                onClick={handleStart}
+                disabled={starting || !selectedWs}
+                className="btn-dark px-5 py-2.5 text-xs font-medium flex items-center gap-2 cursor-pointer disabled:opacity-40"
+              >
+                {starting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                {starting ? 'Initializing Session...' : 'Start Session'}
+              </button>
+            </>
           )}
-
-          <label className="flex items-start gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={consent}
-              onChange={(e) => setConsent(e.target.checked)}
-              className="mt-0.5 accent-primary-500"
-            />
-            <span className="text-sm text-surface-700">
-              <Shield className="w-3.5 h-3.5 inline mr-1 text-amber-400" />
-              I consent to audio capture for this session. {mode === 'bot_join'
-                ? 'The bot will join as a visible participant.'
-                : 'Audio will be captured locally on my device.'
-              }
-            </span>
-          </label>
-
-          {error && (
-            <div className="flex items-center gap-2 text-sm text-rose-400">
-              <AlertTriangle className="w-4 h-4" /> {error}
-            </div>
-          )}
-
-          <button
-            onClick={handleStart}
-            disabled={starting || !selectedWs}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-primary-600 to-accent-600 text-white text-sm font-medium shadow-lg shadow-primary-500/25 hover:shadow-primary-500/40 transition-all disabled:opacity-40 cursor-pointer"
-          >
-            {starting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-            {starting ? 'Starting...' : 'Start Session'}
-          </button>
         </div>
       </div>
 
-      {/* Meeting log */}
-      <div>
-        <h3 className="text-sm font-semibold text-surface-700 uppercase tracking-wider mb-3">
-          Meeting Log
+      {/* Sessions History List */}
+      <div className="space-y-3">
+        <h3 className="font-heading text-xl text-[var(--text-primary)]">
+          Meeting Sessions Log
         </h3>
 
         {loading ? (
-          <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 text-primary-400 animate-spin" /></div>
+          <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 text-[var(--text-muted)] animate-spin" /></div>
         ) : sessions.length === 0 ? (
-          <div className="glass-card p-8 text-center">
-            <Mic className="w-8 h-8 text-surface-500 mx-auto mb-2" />
-            <p className="text-sm text-surface-600">No meetings yet. Start your first MeetOps session above.</p>
+          <div className="app-card p-8 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center mx-auto mb-4">
+              <Mic className="w-7 h-7 text-purple-600 dark:text-purple-400" />
+            </div>
+            <h3 className="font-heading text-2xl text-[var(--text-primary)] mb-2">Welcome to MeetOps</h3>
+            <p className="text-xs text-[var(--text-secondary)] max-w-md mx-auto mb-6">
+              Upload meeting recordings or start live audio capture. WorkPilot automatically transcribes speech, identifies speakers, and extracts actionable insights.
+            </p>
+            {/* Workflow steps */}
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-6 text-left max-w-2xl mx-auto">
+              {[
+                { step: '1', title: 'Upload or Capture', desc: 'Upload a recording or start live desktop audio capture' },
+                { step: '2', title: 'ASR Transcription', desc: 'Faster-Whisper converts speech to text on-device' },
+                { step: '3', title: 'Speaker Diarization', desc: 'Pyannote identifies who said what' },
+                { step: '4', title: 'Extract Insights', desc: 'Tasks, decisions, blockers & risks auto-extracted' },
+              ].map(s => (
+                <div key={s.step} className="p-3 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-subtle)]">
+                  <div className="w-6 h-6 rounded-full bg-[var(--btn-dark-bg)] text-[var(--btn-dark-text)] flex items-center justify-center text-[10px] font-bold mb-2">{s.step}</div>
+                  <p className="text-xs font-semibold text-[var(--text-primary)] mb-0.5">{s.title}</p>
+                  <p className="text-[11px] text-[var(--text-muted)] leading-snug">{s.desc}</p>
+                </div>
+              ))}
+            </div>
+            {/* Supported formats + Privacy */}
+            <div className="flex flex-col items-center gap-3">
+              <div className="flex items-center gap-2 flex-wrap justify-center">
+                {['WAV', 'MP3', 'M4A', 'OGG', 'WebM'].map(fmt => (
+                  <span key={fmt} className="px-2 py-0.5 rounded-md bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">
+                    {fmt}
+                  </span>
+                ))}
+              </div>
+              <div className="flex items-center gap-1.5 text-[11px] text-emerald-600 dark:text-emerald-400">
+                <Shield className="w-3.5 h-3.5" />
+                <span>All audio stays on your device — processed locally, never uploaded to the cloud</span>
+              </div>
+            </div>
           </div>
         ) : (
           <div className="space-y-2">
             {sessions.map(session => {
               const st = STATUS_MAP[session.status] || STATUS_MAP.pending;
               return (
-                <div key={session.id} className="glass-card px-5 py-4 flex items-center gap-4">
-                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${
-                    session.capture_mode === 'bot_join'
-                      ? 'bg-blue-500/10 border border-blue-500/20'
-                      : 'bg-purple-500/10 border border-purple-500/20'
-                  }`}>
-                    {session.capture_mode === 'bot_join'
-                      ? <Video className="w-4 h-4 text-blue-400" />
-                      : <MonitorSpeaker className="w-4 h-4 text-purple-400" />
+                <div key={session.id} className="app-card px-5 py-3.5 flex items-center gap-4">
+                  <div className="w-9 h-9 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-subtle)] flex items-center justify-center flex-shrink-0">
+                    {session.capture_mode === 'upload'
+                      ? <Upload className="w-4 h-4 text-blue-500" />
+                      : <MonitorSpeaker className="w-4 h-4 text-purple-500" />
                     }
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-surface-950 truncate">
+                    <p className="font-heading text-lg text-[var(--text-primary)] truncate">
                       {session.title || 'Untitled Session'}
                     </p>
-                    <p className="text-xs text-surface-600 mt-0.5">
-                      {session.capture_mode === 'bot_join' ? 'Bot Join' : 'Local Listener'}
-                      {session.platform && ` • ${session.platform}`}
-                      {session.duration_seconds && ` • ${Math.round(session.duration_seconds / 60)}m`}
+                    <p className="text-xs text-[var(--text-muted)]">
+                      {session.capture_mode === 'upload' ? 'File Upload' : 'Live Capture'}
+                      {session.duration_seconds && ` • ${Math.round(session.duration_seconds / 60)} mins`}
                       {session.created_at && ` • ${new Date(session.created_at).toLocaleDateString()}`}
                     </p>
                   </div>
-                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${st.bg} ${st.color}`}>
+                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider ${st.bg} ${st.color}`}>
                     {session.status === 'listening' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
                     {st.label}
                   </span>
-                  {['listening', 'joining', 'pending'].includes(session.status) && (
+                  {['listening', 'pending'].includes(session.status) && (
                     <button
                       onClick={() => handleStop(session.id)}
-                      className="w-8 h-8 rounded-lg bg-rose-500/10 border border-rose-500/20 flex items-center justify-center hover:bg-rose-500/20 transition-colors cursor-pointer"
+                      className="p-2 rounded-lg bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 transition-colors cursor-pointer"
+                      title="Stop Session"
                     >
-                      <Square className="w-3.5 h-3.5 text-rose-400" />
+                      <Square className="w-3.5 h-3.5" />
                     </button>
                   )}
                 </div>

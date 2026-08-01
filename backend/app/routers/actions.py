@@ -12,7 +12,7 @@ from app.schemas import (
     ActionItemGenerateRequest, ActionApproveRequest, ActionRejectRequest,
     ActionExecutionResponse,
 )
-from app.services.entitlements import get_default_user
+from app.services.auth import get_or_create_local_user
 from app.services.actionops import (
     generate_action_items, approve_action, reject_action,
     execute_action, update_action_item,
@@ -28,7 +28,7 @@ async def plan_actions(
     db: Session = Depends(get_db),
 ):
     """Generate action plans from workspace evidence using AI."""
-    user = get_default_user(db)
+    user = get_or_create_local_user(db)
 
     try:
         plans = generate_action_items(

@@ -3,6 +3,7 @@
 //! Buffers audio samples and produces WAV-encoded chunks every
 //! `CHUNK_DURATION_SECS` seconds for upload.
 
+use crate::audio::capture::{DEFAULT_SAMPLE_RATE, DEFAULT_CHANNELS};
 use hound::{WavSpec, WavWriter};
 use log::debug;
 use std::io::Cursor;
@@ -13,8 +14,8 @@ pub const CHUNK_DURATION_SECS: f32 = 5.0;
 /// WAV specification for Whisper-compatible audio.
 pub fn wav_spec() -> WavSpec {
     WavSpec {
-        channels: 1,
-        sample_rate: 16000,
+        channels: DEFAULT_CHANNELS,
+        sample_rate: DEFAULT_SAMPLE_RATE,
         bits_per_sample: 32,
         sample_format: hound::SampleFormat::Float,
     }

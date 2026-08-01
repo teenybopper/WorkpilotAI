@@ -1,7 +1,7 @@
-"""Pydantic schemas for API request/response validation."""
+"""Pydantic schemas for API request/response validation (local desktop app)."""
 
 from pydantic import BaseModel, Field
-from typing import Optional, List, Any
+from typing import Optional, List
 from datetime import datetime
 from uuid import UUID
 from enum import Enum
@@ -36,25 +36,17 @@ class TaskPriorityEnum(str, Enum):
 
 
 class MeetingCaptureModeEnum(str, Enum):
-    BOT_JOIN = "bot_join"
     LOCAL_LISTENER = "local_listener"
     UPLOAD = "upload"
 
 
 class SessionStatusEnum(str, Enum):
     PENDING = "pending"
-    JOINING = "joining"
     LISTENING = "listening"
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
-
-
-class PlanTierEnum(str, Enum):
-    FREE = "personal"
-    PRO = "team"
-    ENTERPRISE = "enterprise"
 
 
 class ActionTypeEnum(str, Enum):
@@ -283,8 +275,6 @@ class MeetingSessionCreate(BaseModel):
     workspace_id: UUID
     capture_mode: MeetingCaptureModeEnum
     title: Optional[str] = None
-    platform: Optional[str] = None
-    meeting_url: Optional[str] = None
     consent_given: bool = False
 
 
@@ -294,8 +284,6 @@ class MeetingSessionResponse(BaseModel):
     source_id: Optional[UUID]
     capture_mode: MeetingCaptureModeEnum
     status: SessionStatusEnum
-    platform: Optional[str]
-    meeting_url: Optional[str]
     title: Optional[str]
     started_at: Optional[datetime]
     ended_at: Optional[datetime]
@@ -313,139 +301,12 @@ class MeetingSessionTranscriptSubmit(BaseModel):
     segments: Optional[List[dict]] = None  # [{speaker, start_time, end_time, text}]
 
 
-# ── Device Auth (Local Companion) ─────────────────────────────────────────
-
-class DevicePairRequest(BaseModel):
-    """Pair a local companion device with a user account."""
-    device_name: str = Field(..., min_length=1, max_length=255)
-    device_platform: str = Field(..., pattern="^(windows|macos|linux)$")
-
-
-class DevicePairResponse(BaseModel):
-    device_id: UUID
-    device_token: str  # Raw token — shown once, stored hashed
-    device_name: str
-    device_platform: str
-    created_at: datetime
-
-
-class DeviceTokenResponse(BaseModel):
-    id: UUID
-    device_name: Optional[str]
-    device_platform: Optional[str]
-    is_active: bool
-    last_seen_at: Optional[datetime]
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class DeviceVerifyRequest(BaseModel):
-    device_token: str
-
-
-class DeviceVerifyResponse(BaseModel):
-    valid: bool
-    device_id: Optional[UUID] = None
-    user_id: Optional[UUID] = None
-
-
-# ── Bot Service Auth (Organization Bot) ───────────────────────────────────
-
-class BotServiceTokenCreateRequest(BaseModel):
-    service_name: str = Field(..., min_length=1, max_length=255)
-    scopes: Optional[List[str]] = None
-
-
-class BotServiceTokenResponse(BaseModel):
-    id: UUID
-    org_id: UUID
-    service_name: str
-    token: Optional[str] = None  # Raw token — only on creation
-    scopes: Optional[List[str]] = None
-    is_active: bool
-    last_used_at: Optional[datetime]
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class BotServiceVerifyRequest(BaseModel):
-    bot_token: str
-
-
-class BotServiceVerifyResponse(BaseModel):
-    valid: bool
-    token_id: Optional[UUID] = None
-    org_id: Optional[UUID] = None
-
-
-# ── Audio Capture (Shared by Local Companion & Org Bot) ───────────────────
-
-class CaptureSessionCreateRequest(BaseModel):
-    """Create a capture session from either a device or bot."""
-    workspace_id: UUID
-    capture_mode: MeetingCaptureModeEnum
-    title: Optional[str] = None
-    platform: Optional[str] = None
-    meeting_url: Optional[str] = None
-    consent_given: bool = False
-    device_token: Optional[str] = None   # For local companion
-    bot_token: Optional[str] = None      # For org bot service
-    provider_session_id: Optional[str] = None
-
-
-class CaptureSessionResponse(BaseModel):
-    session_id: UUID
-    status: SessionStatusEnum
-    chunks_received: int = 0
-    created_at: datetime
-
-
-class CaptureKeepAliveRequest(BaseModel):
-    device_token: Optional[str] = None
-    bot_token: Optional[str] = None
-
-
-class CaptureSessionStatusResponse(BaseModel):
-    session_id: UUID
-    status: SessionStatusEnum
-    capture_mode: MeetingCaptureModeEnum
-    chunks_received: int
-    started_at: Optional[datetime]
-    ended_at: Optional[datetime]
-    duration_seconds: Optional[float]
-    source_id: Optional[UUID] = None
-
-
-class LocalCompanionStatusResponse(BaseModel):
-    """Status of local companion for dashboard display."""
-    paired: bool
-    device_id: Optional[UUID] = None
-    device_name: Optional[str] = None
-    device_platform: Optional[str] = None
-    is_active: bool = False
-    last_seen_at: Optional[datetime] = None
-    active_session_id: Optional[UUID] = None
-    active_session_status: Optional[SessionStatusEnum] = None
-
-
-class OrgBotStatusResponse(BaseModel):
-    """Status of org bot service for dashboard display."""
-    token_configured: bool
-    service_name: Optional[str] = None
-    active_sessions: int = 0
-    completed_sessions: int = 0
-
-
 # ── Connected Tool / MCP ──────────────────────────────────────────────────
 
 class ConnectedToolCreate(BaseModel):
     tool_type: str = Field(..., min_length=1, max_length=64)
     display_name: str = Field(..., min_length=1, max_length=255)
-    auth_config: Optional[dict] = None  # Will be encrypted before storage
+    auth_config: Optional[dict] = None
     config: Optional[dict] = None
 
 
@@ -468,8 +329,8 @@ class AvailableToolInfo(BaseModel):
     display_name: str
     description: str
     capabilities: List[str]
-    auth_type: str  # oauth, api_key, token
-    config_fields: List[dict]  # [{name, type, required, description}]
+    auth_type: str
+    config_fields: List[dict]
 
 
 # ── ActionOps ─────────────────────────────────────────────────────────────
@@ -522,7 +383,7 @@ class ActionItemUpdate(BaseModel):
 
 
 class ActionApproveRequest(BaseModel):
-    pass  # No extra fields needed; presence = approval
+    pass
 
 
 class ActionRejectRequest(BaseModel):
@@ -546,20 +407,7 @@ class ActionExecutionResponse(BaseModel):
 class ActionItemGenerateRequest(BaseModel):
     """Ask the system to auto-generate action plans from workspace evidence."""
     workspace_id: UUID
-    scope: Optional[str] = None  # "all", "recent_meeting", "recent_document"
-
-
-# ── Settings & Entitlements ───────────────────────────────────────────────
-
-class UserPlanResponse(BaseModel):
-    plan_tier: PlanTierEnum
-    features: dict  # {feature_name: enabled}
-
-
-class ExecutionPoliciesUpdate(BaseModel):
-    auto_execute_low_risk: Optional[bool] = None
-    require_review_all: Optional[bool] = None
-    max_daily_auto_executions: Optional[int] = None
+    scope: Optional[str] = None
 
 
 # ── Forward references ────────────────────────────────────────────────────

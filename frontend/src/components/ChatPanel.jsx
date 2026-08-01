@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Send, Loader2, Sparkles, FileText, Mic, Brain } from 'lucide-react';
-import { workspaceApi } from '../lib/api';
+import { queryWorkspace } from '../lib/api';
 
 export default function ChatPanel({ workspaceId }) {
   const [messages, setMessages] = useState([]);
@@ -21,11 +21,7 @@ export default function ChatPanel({ workspaceId }) {
     setLoading(true);
 
     try {
-      const res = await workspaceApi.query({
-        workspace_id: workspaceId,
-        query,
-        top_k: 5,
-      });
+      const res = await queryWorkspace(workspaceId, query, 5);
 
       setMessages(prev => [...prev, {
         role: 'assistant',

@@ -1,11 +1,13 @@
-"""MeetOps service — transcription, diarization, action extraction, and summaries."""
+"""MeetOps service — transcription, diarization, action extraction, and summaries.
+
+Uses ChromaDB (embedded) instead of Qdrant for vector storage.
+"""
 
 import logging
 import os
 import uuid
 from sqlalchemy.orm import Session
-from qdrant_client import QdrantClient
-from qdrant_client.models import PointStruct, VectorParams, Distance
+import chromadb
 
 from app.config import settings
 from app.models import (
@@ -19,25 +21,20 @@ from app.utils.llm import llm_complete, llm_json
 logger = logging.getLogger(__name__)
 
 
-def _get_qdrant() -> QdrantClient:
-    return QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
+def _get_chroma():
+    return chromadb.PersistentClient(path=settings.chroma_dir)
 
 
-def _ensure_collection(qdrant: QdrantClient):
-    collections = [c.name for c in qdrant.get_collections().collections]
-    if settings.qdrant_collection not in collections:
-        qdrant.create_collection(
-            collection_name=settings.qdrant_collection,
-            vectors_config=VectorParams(size=384, distance=Distance.COSINE),
-        )
+def _get_collection(chroma_client=None):
+    client = chroma_client or _get_chroma()
+    return client.get_or_create_collection(name=settings.chroma_collection)
 
 
 def transcribe_audio(source: Source, db: Session) -> list[TranscriptSegment]:
     """Transcribe audio using faster-whisper and return transcript segments."""
     from faster_whisper import WhisperModel
 
-    object_name = source.storage_path.split("/", 1)[1]
-    local_path = get_temp_path(object_name)
+    local_path = get_temp_path(source.storage_path)
 
     try:
         # Load whisper model (use base for speed, can upgrade later)
@@ -74,17 +71,13 @@ def transcribe_audio(source: Source, db: Session) -> list[TranscriptSegment]:
         db.commit()
         logger.error(f"Transcription failed for {source.filename}: {e}")
         raise
-    finally:
-        if os.path.exists(local_path):
-            os.remove(local_path)
 
 
 def diarize_audio(source: Source, db: Session) -> list[TranscriptSegment]:
     """Run speaker diarization using pyannote.audio and update transcript segments."""
     from pyannote.audio import Pipeline
 
-    object_name = source.storage_path.split("/", 1)[1]
-    local_path = get_temp_path(object_name)
+    local_path = get_temp_path(source.storage_path)
 
     try:
         pipeline = Pipeline.from_pretrained(
@@ -131,9 +124,6 @@ def diarize_audio(source: Source, db: Session) -> list[TranscriptSegment]:
     except Exception as e:
         logger.error(f"Diarization failed for {source.filename}: {e}")
         raise
-    finally:
-        if os.path.exists(local_path):
-            os.remove(local_path)
 
 
 def extract_meeting_actions(source: Source, db: Session) -> dict:
@@ -233,7 +223,7 @@ Return a JSON object with:
 
 
 def index_transcript_chunks(source: Source, db: Session):
-    """Chunk transcript text, generate embeddings, and store in Qdrant."""
+    """Chunk transcript text, generate embeddings, and store in ChromaDB."""
     segments = db.query(TranscriptSegment).filter(
         TranscriptSegment.source_id == source.id
     ).order_by(TranscriptSegment.start_time).all()
@@ -249,26 +239,33 @@ def index_transcript_chunks(source: Source, db: Session):
 
     embeddings = generate_embeddings(chunks)
 
-    qdrant = _get_qdrant()
-    _ensure_collection(qdrant)
+    collection = _get_collection()
 
-    points = []
+    ids = []
+    documents = []
+    emb_list = []
+    metadatas = []
+
     for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-        points.append(PointStruct(
-            id=str(uuid.uuid4()),
-            vector=embedding,
-            payload={
-                "text": chunk,
-                "source_id": str(source.id),
-                "workspace_id": str(source.workspace_id),
-                "source_type": "meeting",
-                "filename": source.filename,
-                "chunk_index": i,
-            },
-        ))
+        chunk_id = str(uuid.uuid4())
+        ids.append(chunk_id)
+        documents.append(chunk)
+        emb_list.append(embedding)
+        metadatas.append({
+            "source_id": str(source.id),
+            "workspace_id": str(source.workspace_id),
+            "source_type": "meeting",
+            "filename": source.filename,
+            "chunk_index": i,
+        })
 
-    qdrant.upsert(collection_name=settings.qdrant_collection, points=points)
-    logger.info(f"Indexed {len(points)} transcript chunks from {source.filename}")
+    collection.add(
+        ids=ids,
+        documents=documents,
+        embeddings=emb_list,
+        metadatas=metadatas,
+    )
+    logger.info(f"Indexed {len(ids)} transcript chunks from {source.filename}")
 
 
 def generate_meeting_summary(source: Source, db: Session) -> dict:

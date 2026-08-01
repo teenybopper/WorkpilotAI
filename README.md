@@ -1,95 +1,112 @@
 # WorkPilot AI
 
-**Agentic Work Orchestration Platform** — DocOps + MeetOps + ActionOps
+**Local Agentic Work Orchestration Platform** — DocOps + MeetOps + ActionOps
 
-Upload documents and meeting recordings. WorkPilot AI extracts decisions, tasks, blockers, and follow-ups — then connects everything with cross-source intelligence and executes workflows through integrations.
+WorkPilot AI is a privacy-first, on-device AI assistant that runs locally on your computer. Upload documents, ingest meeting recordings, or capture live meeting audio directly from your desktop. WorkPilot AI extracts decisions, tasks, blockers, risks, and follow-ups — then builds cross-source intelligence and executes automated workflows through integrations.
 
-## Architecture
+## 🏗 Architecture
 
 ```text
-┌─────────────────────────────────────────────────────────────────┐
-│                    User Workspace (React 19)                    │
-├─────────────┬─────────────┬─────────────┬──────────────┬────────┤
-│ Auth & Orgs │   DocOps    │   MeetOps   │  ActionOps   │Settings│
-├─────────────┴─────────────┴─────────────┴──────────────┴────────┤
-│                      FastAPI Control Plane                      │
-│        JWT Auth · Multi-Tenancy  · Plan Entitlements            │
-├─────────────┬─────────────┬─────────────┬───────────────────────┤
-│   DocOps    │   MeetOps   │ Intelligence│       ActionOps       │
-│   Copilot   │   Copilot   │    Layer    │          MCP          │
-│  (Docling)  │  (Whisper)  │  (OpenAI)   │(External Integrations)│
-├─────────────┴─────────────┴─────────────┴───────────────────────┤
-│            PostgreSQL 16 · Qdrant · MinIO Workspace             │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│              WorkPilot AI Web App (React 19 + Vite)              │
+│       Dashboard · DocOps · MeetOps · ActionOps · Integrations    │
+└────────────────────────────────┬─────────────────────────────────┘
+                                 │ HTTP REST / WebSocket
+┌────────────────────────────────▼─────────────────────────────────┐
+│                     FastAPI Control Plane                        │
+│            Local Session Manager · RAG Engine · MCP Engine           │
+├───────────────┬────────────────┬─────────────────┬───────────────┤
+│    DocOps     │    MeetOps     │  Intelligence   │   ActionOps   │
+│   (Docling)   │(Faster-Whisper │     Layer       │ (Jira, Slack, │
+│               │ & Pyannote)    │(OpenAI+ChromaDB)│ GDocs, Email) │
+├───────────────┴────────────────┴─────────────────┴───────────────┤
+│       SQLite (`workpilot.db`) · ChromaDB · Local Filesystem      │
+└────────────────────────────────▲─────────────────────────────────┘
+                                 │ HTTP Audio Chunks (5s WAV)
+┌────────────────────────────────┴─────────────────────────────────┐
+│            WPAI-local Desktop Companion (Tauri v2 + Rust)        │
+│       System Tray · WASAPI / SCK / PipeWire · Offline Buffer     │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-## Tech Stack
+## 🛠 Tech Stack
 
-| Layer            | Technology                                    |
-|------------------|-----------------------------------------------|
-| Backend          | FastAPI, SQLAlchemy, uv                       |
-| Authentication   | JWT, bcrypt, passlib, python-jose             |
-| Document parsing | Docling                                       |
-| Transcription    | faster-whisper                                |
-| Diarization      | pyannote.audio                                |
-| Vector search    | Qdrant                                        |
-| Database         | PostgreSQL 16                                 |
-| Object storage   | MinIO                                         |
-| LLM              | OpenAI (gpt-4o-mini)                          |
-| Embeddings       | sentence-transformers (all-MiniLM-L6-v2)      |
-| Frontend         | React 19, Vite 8, Tailwind CSS v4             |
+| Layer | Technology |
+|---|---|
+| **Backend** | Python 3.12, FastAPI, SQLAlchemy, `uv` package manager |
+| **Desktop Companion** | Tauri v2, Rust (`cpal`, WASAPI, ScreenCaptureKit, PipeWire) |
+| **Document Parsing** | Docling (`docling`) |
+| **ASR Transcription** | `faster-whisper` (`base` model) |
+| **Speaker Diarization** | `pyannote.audio` (`speaker-diarization-3.1`) |
+| **Vector DB** | ChromaDB (embedded in-memory / disk persistence) |
+| **Database** | SQLite (`~/WorkPilotAI/data/workpilot.db`) |
+| **Storage** | Local Filesystem (`~/WorkPilotAI/files`) |
+| **LLM & Embeddings** | OpenAI (GPT-4o-mini / GPT-4o), sentence-transformers (`all-MiniLM-L6-v2`) |
+| **Frontend** | React 19, Vite, Tailwind CSS v4, Lucide Icons |
+
+---
 
 ## 🚀 Quickstart
 
-### 1. Start Infrastructure Dependencies
-WorkPilot runs entirely natively on your local machine.
+### Prerequisites
+- **Python 3.12+** & **uv** (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
+- **Node.js 18+** & **npm**
+- **Rust Toolchain** & **Tauri CLI** (for building the local desktop companion)
+- **OpenAI API Key** (configured in Settings or `.env`)
 
-```bash
-# Start MinIO, Qdrant, and Redis natively in the background
-./start_infra.sh
-
-# To stop the infrastructure later:
-./stop_infra.sh
-```
-
-### 2. Backend (FastAPI + Agentic Framework)
+### 1. Backend (FastAPI Control Plane)
 ```bash
 cd backend
-# Backend dependencies and server are managed entirely using `uv`
+
+# Synchronize dependencies with uv
 uv sync
-uv run uvicorn app.main:app --reload
+
+# Run the FastAPI server
+uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-# Run the server
-uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-### 3. Frontend
+### 2. Frontend (React SPA)
 ```bash
 cd frontend
+
+# Install node dependencies
 npm install
+
+# Start development server
 npm run dev
 ```
+Open [http://localhost:5173](http://localhost:5173) in your browser.
 
-Open http://localhost:5173
+### 3. WPAI-local Desktop Companion (Optional for Live Audio Capture)
+```bash
+cd WPAI-local
 
-## Key Modules
+# Launch Tauri companion in dev mode
+cargo tauri dev
+```
 
-### Auth & Multi-Tenancy
-- **Accounts**: Individual and Organization profiles.
-- **Entitlements**: Plan-based restrictions (Free, Pro, Business, Enterprise) governing limits and capabilities.
-- **Onboarding**: Secure JWT-based auth and invite-code member registration.
+---
 
-### MeetOps
-- **Bot Join**: AI assistant joins web-conferencing URLs directly.
-- **Local Listener**: Completely on-device audio capture without joining a room.
-- AI generates transcripts, diarizes speakers, and extracts actionable insights.
+## 🔑 Key Modules
 
-### ActionOps (Integrations Hub)
-- **External Connections**: API bridging for tools like Jira, ClickUp, Notion, Slack.
-- **Three-Stage Approvals**:
-  - `Light`: AI executes automations transparently.
-  - `Medium`: AI executes and issues a notification.
-  - `Heavy`: AI prepares the payload and explicitly halts until user approval.
-  
-For more technical details, please refer to the `architecture.md` file.
+### 📄 DocOps (Document Intelligence)
+- **Docling Integration**: Converts PDF, DOCX, and PPTX files into structured Markdown and table representations.
+- **Entity Extraction**: Automatically identifies people, dates, monetary amounts, deadlines, clauses, and obligations.
+- **RAG Document Search**: Instant semantic Q&A across workspace documents powered by embedded ChromaDB.
+- **Document Comparison**: Line-by-line diffing with AI-synthesized change summaries and risk flags.
+
+### 🎙 MeetOps (Meeting Operations)
+- **Pre-recorded Audio Ingestion**: Upload WAV, MP3, M4A, OGG, or WebM meeting files.
+- **Live Local Audio Capture**: Desktop companion captures system audio output and microphone in real time.
+- **ASR & Diarization**: Transcribes speech with `faster-whisper` and labels distinct speakers using `pyannote.audio`.
+- **Insight Extraction**: Automated extraction of tasks (with owners/due dates), binding decisions, blockers, risks, unresolved questions, and concise meeting summaries.
+
+### ⚡ ActionOps (Agentic Execution Hub)
+- **Action Plan Generation**: Scans extracted meeting/document evidence and formulates concrete action plans.
+- **1-Click Human-in-the-Loop Governance**: Review proposed actions with risk levels, edit payloads/owners, and approve or reject before execution.
+- **MCP Adapter Integrations**: Connects to Jira, Slack, Google Docs, and Email to trigger automated ticket creation, message dispatch, and document creation.
+
+---
+
+For technical architectural details and flow diagrams, please see [`architecture.md`](file:///home/mayank/Documents/personal/workpilotAI/architecture.md) and [`architecture_flowchart.md`](file:///home/mayank/Documents/personal/workpilotAI/architecture_flowchart.md).
+

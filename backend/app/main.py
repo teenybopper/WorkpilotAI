@@ -1,9 +1,11 @@
-"""WorkPilot AI — FastAPI application entry point."""
+"""WorkPilot AI — FastAPI application entry point (local desktop app)."""
 
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.database import engine, Base
@@ -15,9 +17,9 @@ from app.routers.integrations import router as integrations_router
 from app.routers.actions import router as actions_router
 from app.routers.settings import router as settings_router
 from app.routers.auth import router as auth_router
-from app.routers.device_auth import router as device_auth_router
-from app.routers.bot_auth import router as bot_auth_router
 from app.routers.capture import router as capture_router
+from app.routers.local_settings import router as local_settings_router
+from app.routers.device_auth import router as device_auth_router
 
 # Configure logging
 logging.basicConfig(
@@ -32,40 +34,40 @@ async def lifespan(app: FastAPI):
     """Startup and shutdown lifecycle events."""
     logger.info("🚀 WorkPilot AI starting up...")
 
-    # Create database tables
+    # Ensure all data directories exist
+    settings.ensure_directories()
+    logger.info(f"📁 Data directory: {settings.data_dir}")
+
+    # Create database tables (SQLite auto-creates)
     Base.metadata.create_all(bind=engine)
     logger.info("✅ Database tables ready")
 
-    # Initialize MinIO bucket
+    # Ensure local user exists
     try:
-        from app.utils.storage import ensure_bucket
-        ensure_bucket()
-        logger.info("✅ MinIO bucket ready")
+        from app.database import SessionLocal
+        from app.services.auth import get_or_create_local_user
+        db = SessionLocal()
+        user = get_or_create_local_user(db)
+        db.close()
+        logger.info(f"✅ Local user ready: {user.name}")
     except Exception as e:
-        logger.warning(f"⚠️  MinIO not available: {e}")
+        logger.warning(f"⚠️  Could not initialize local user: {e}")
 
-    # Initialize Qdrant collection
+    # Load API keys from config file
     try:
-        from qdrant_client import QdrantClient
-        from qdrant_client.models import VectorParams, Distance
-        qdrant = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
-        collections = [c.name for c in qdrant.get_collections().collections]
-        if settings.qdrant_collection not in collections:
-            qdrant.create_collection(
-                collection_name=settings.qdrant_collection,
-                vectors_config=VectorParams(size=384, distance=Distance.COSINE),
-            )
-        logger.info("✅ Qdrant collection ready")
+        from app.routers.local_settings import load_api_keys_to_settings
+        load_api_keys_to_settings()
     except Exception as e:
-        logger.warning(f"⚠️  Qdrant not available: {e}")
+        logger.warning(f"⚠️  Could not load API keys: {e}")
 
-    # Register MCP tool adapters
+    # Initialize ChromaDB
     try:
-        from app.services.mcp.registry import list_registered_types
-        registered = list_registered_types()
-        logger.info(f"✅ MCP adapters registered: {', '.join(registered)}")
+        import chromadb
+        chroma_client = chromadb.PersistentClient(path=settings.chroma_dir)
+        chroma_client.get_or_create_collection(name=settings.chroma_collection)
+        logger.info("✅ ChromaDB collection ready")
     except Exception as e:
-        logger.warning(f"⚠️  MCP adapter registration: {e}")
+        logger.warning(f"⚠️  ChromaDB not available: {e}")
 
     logger.info("✅ WorkPilot AI is ready!")
     yield
@@ -74,21 +76,71 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="WorkPilot AI",
-    description="Agentic work orchestration platform — DocOps + MeetOps + ActionOps + Shared Intelligence",
-    version="0.2.0",
+    description="Local AI meeting companion — Record, Transcribe, Document, Take Notes",
+    version="1.0.0",
     lifespan=lifespan,
 )
 
-# CORS middleware for frontend
+# ── CORS middleware — locked to known local origins only ─────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000", "*"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "tauri://localhost",
+        "https://tauri.localhost",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+
+# ── Global exception handlers ────────────────────────────────────────────
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Catch-all: return a clean 500 JSON response instead of raw stack traces."""
+    logger.error(f"Unhandled server error on {request.method} {request.url.path}: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error. Please check the server logs for details."},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Return structured 422 responses for request validation failures."""
+    return JSONResponse(
+        status_code=422,
+        content={"detail": "Validation error", "errors": exc.errors()},
+    )
+
+
+# ── Upload size limiting middleware ──────────────────────────────────────
+
+MAX_UPLOAD_SIZE = 100 * 1024 * 1024  # 100 MB
+
+
+@app.middleware("http")
+async def limit_upload_size(request: Request, call_next):
+    """Reject uploads exceeding MAX_UPLOAD_SIZE before the body is fully read."""
+    if request.method in ("POST", "PUT", "PATCH"):
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > MAX_UPLOAD_SIZE:
+            return JSONResponse(
+                status_code=413,
+                content={
+                    "detail": f"File too large. Maximum upload size is {MAX_UPLOAD_SIZE // (1024 * 1024)} MB."
+                },
+            )
+    return await call_next(request)
+
 # Register routers
+app.include_router(auth_router)
+app.include_router(local_settings_router)
 app.include_router(documents_router)
 app.include_router(meetings_router)
 app.include_router(workspace_router)
@@ -96,22 +148,27 @@ app.include_router(meetops_sessions_router)
 app.include_router(integrations_router)
 app.include_router(actions_router)
 app.include_router(settings_router)
-app.include_router(auth_router)
-app.include_router(device_auth_router)
-app.include_router(bot_auth_router)
 app.include_router(capture_router)
+app.include_router(device_auth_router)
 
 
 @app.get("/")
 async def root():
     return {
         "name": "WorkPilot AI",
-        "version": "0.2.0",
+        "version": "1.0.0",
         "status": "running",
-        "modules": ["DocOps", "MeetOps", "ActionOps", "SharedIntelligence"],
+        "mode": "local",
+        "data_dir": settings.data_dir,
     }
 
 
 @app.get("/api/health")
 async def health():
     return {"status": "healthy"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8000)
+

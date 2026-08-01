@@ -15,7 +15,7 @@ from app.services.meetops import (
     transcribe_audio, diarize_audio, extract_meeting_actions,
     index_transcript_chunks, generate_meeting_summary,
 )
-from app.utils.storage import upload_file, ensure_bucket
+from app.utils.storage import save_file
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/meetings", tags=["Meetings"])
@@ -27,19 +27,29 @@ async def upload_meeting(
     workspace_id: str = Form(...),
     db: Session = Depends(get_db),
 ):
-    """Upload a meeting audio file (WAV, MP3, M4A, OGG, WebM) or transcript."""
-    ensure_bucket()
-
+    """Upload a meeting audio file (WAV, MP3, M4A, OGG, WebM) or pre-recorded audio."""
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="Empty file")
 
+    # Enforce per-route audio file size limit (100 MB)
+    MAX_AUDIO_SIZE = 100 * 1024 * 1024
+    if len(content) > MAX_AUDIO_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Audio file exceeds {MAX_AUDIO_SIZE // (1024 * 1024)} MB limit. "
+                   "Consider trimming the recording or splitting into segments.",
+        )
+
     content_type = file.content_type or "application/octet-stream"
-    object_name = f"meetings/{workspace_id}/{uuid.uuid4()}_{file.filename}"
-    storage_path = upload_file(object_name, content, content_type)
+    source_id = str(uuid.uuid4())
+
+    # Save to local filesystem
+    storage_path = save_file(workspace_id, source_id, file.filename, content)
 
     source = Source(
-        workspace_id=uuid.UUID(workspace_id),
+        id=source_id,
+        workspace_id=workspace_id,
         source_type=SourceType.MEETING,
         filename=file.filename,
         storage_path=storage_path,
@@ -72,7 +82,7 @@ async def transcribe_meeting(
 
     try:
         segments = transcribe_audio(source, db)
-        # Index transcript chunks in Qdrant
+        # Index transcript chunks in ChromaDB
         index_transcript_chunks(source, db)
 
         return {

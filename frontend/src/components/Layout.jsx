@@ -1,40 +1,37 @@
 import { Outlet, Link, NavLink } from 'react-router-dom';
 import { useState } from 'react';
-import { useAuth } from '../context/AuthContext';
 import {
-  Bot, Sparkles, LayoutDashboard, FileText, Mic,
+  LayoutDashboard, FileText, Mic,
   Zap, Settings, ChevronLeft, ChevronRight,
-  Menu, X, LogOut, Building2, User, Crown, Monitor
+  Menu, X, Plug, Sun, Moon, Sparkles, BookOpen, Bug
 } from 'lucide-react';
+import { useTheme } from '../context/ThemeContext';
+import logoWDark from '../assets/logo-w-dark.svg';
+import logoWLight from '../assets/logo-w-light.svg';
 
-const ALL_NAV_ITEMS = [
+const NAV_ITEMS = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard', exact: true },
-  { to: '/docops', icon: FileText, label: 'DocOps', color: 'text-blue-400' },
-  { to: '/meetops', icon: Mic, label: 'MeetOps', color: 'text-purple-400', orgOnly: true },
-  { to: '/actions', icon: Zap, label: 'ActionOps', color: 'text-emerald-400' },
-  { to: '/settings', icon: Settings, label: 'Settings', color: 'text-surface-600' },
+  { to: '/docops', icon: FileText, label: 'DocOps' },
+  { to: '/meetops', icon: Mic, label: 'MeetOps' },
+  { to: '/actions', icon: Zap, label: 'ActionOps' },
+  { to: '/integrations', icon: Plug, label: 'Integrations' },
+  { to: '/docs', icon: BookOpen, label: 'Docs' },
+  { to: '/settings', icon: Settings, label: 'Settings' },
 ];
-
-const SETUP_NAV = {
-  individual: { to: '/setup/companion', icon: Monitor, label: 'Companion', color: 'text-pink-400' },
-  organization: { to: '/setup/bot', icon: Bot, label: 'Bot Setup', color: 'text-cyan-400' },
-};
 
 export default function Layout() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { user, organization, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
 
-  const handleLogout = async () => {
-    await logout();
-  };
+  const logoSrc = theme === 'dark' ? logoWDark : logoWDark; // SVG logo works in both or can invert
 
   return (
-    <div className="min-h-screen bg-surface-50 flex">
+    <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] flex transition-colors duration-200">
       {/* Mobile overlay */}
       {mobileOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden"
           onClick={() => setMobileOpen(false)}
         />
       )}
@@ -42,141 +39,102 @@ export default function Layout() {
       {/* Sidebar */}
       <aside
         className={`fixed lg:sticky top-0 left-0 z-50 h-screen flex flex-col
-          bg-gradient-to-b from-surface-100/95 to-surface-50/95 backdrop-blur-xl
-          border-r border-white/5 transition-all duration-300 ease-in-out
+          bg-[var(--bg-sidebar)] backdrop-blur-xl
+          border-r border-[var(--border-subtle)] transition-all duration-300 ease-in-out
           ${collapsed ? 'w-[72px]' : 'w-[240px]'}
           ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         `}
       >
-        {/* Logo */}
-        <div className="h-16 flex items-center px-4 border-b border-white/5 gap-3">
-          <Link to="/" className="flex items-center gap-3 group flex-1 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center shadow-lg shadow-primary-500/20 group-hover:shadow-primary-500/40 transition-shadow flex-shrink-0">
-              <Bot className="w-5 h-5 text-white" />
-            </div>
+        {/* Logo & Brand Header */}
+        <div className="h-16 flex items-center px-4 border-b border-[var(--border-subtle)] gap-3">
+          <Link to="/" className="flex items-center gap-2.5 group flex-1 min-w-0">
+            <img
+              src={logoWDark}
+              alt="WorkPilot AI Logo"
+              className={`w-7 h-7 object-contain flex-shrink-0 transition-transform group-hover:scale-105 ${
+                theme === 'light' ? 'filter invert opacity-90' : 'opacity-90'
+              }`}
+            />
             {!collapsed && (
-              <span className="text-base font-bold text-surface-950 tracking-tight truncate">
-                Work<span className="gradient-text">Pilot</span> AI
+              <span className="font-heading font-normal text-2xl tracking-tight text-[var(--text-primary)]">
+                WorkPilot <span className="font-sans text-xs uppercase tracking-widest text-[var(--text-muted)] font-semibold">AI</span>
               </span>
             )}
           </Link>
 
-          {/* Close mobile */}
+          {/* Close mobile menu button */}
           <button
             onClick={() => setMobileOpen(false)}
-            className="lg:hidden w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-200 text-surface-600 cursor-pointer"
+            className="lg:hidden w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--bg-card-hover)] text-[var(--text-secondary)] cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Navigation */}
+        {/* Navigation items */}
         <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
-          {ALL_NAV_ITEMS
-            .filter(item => !item.orgOnly || (user && user.account_type === 'organization'))
-            .map((item) => (
+          {NAV_ITEMS.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               end={item.exact}
               onClick={() => setMobileOpen(false)}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2 rounded-xl text-[13px] font-medium transition-all duration-200 group
-                ${isActive
-                  ? 'bg-primary-500/10 text-primary-400 border border-primary-500/20'
-                  : 'text-surface-700 hover:bg-surface-200/60 hover:text-surface-900 border border-transparent'
+                `flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-sans font-medium transition-all duration-200 group
+                ${
+                  isActive
+                    ? 'bg-[var(--btn-dark-bg)] text-[var(--btn-dark-text)] shadow-sm'
+                    : 'text-[var(--text-secondary)] hover:bg-[var(--bg-card-hover)] hover:text-[var(--text-primary)]'
                 }`
               }
             >
-              <item.icon className={`w-4 h-4 flex-shrink-0 ${item.color || ''}`} />
+              <item.icon className="w-4 h-4 flex-shrink-0" />
               {!collapsed && <span className="truncate">{item.label}</span>}
             </NavLink>
           ))}
-
-          {/* Setup nav — based on account type */}
-          {user && (() => {
-            const setupItem = SETUP_NAV[user.account_type] || SETUP_NAV.individual;
-            return (
-              <>
-                <div className="my-2 border-t border-white/5" />
-                <NavLink
-                  to={setupItem.to}
-                  onClick={() => setMobileOpen(false)}
-                  className={({ isActive }) =>
-                    `flex items-center gap-3 px-3 py-2 rounded-xl text-[13px] font-medium transition-all duration-200 group
-                    ${isActive
-                      ? 'bg-primary-500/10 text-primary-400 border border-primary-500/20'
-                      : 'text-surface-700 hover:bg-surface-200/60 hover:text-surface-900 border border-transparent'
-                    }`
-                  }
-                >
-                  <setupItem.icon className={`w-4 h-4 flex-shrink-0 ${setupItem.color}`} />
-                  {!collapsed && <span className="truncate">{setupItem.label}</span>}
-                </NavLink>
-              </>
-            );
-          })()}
         </nav>
 
-        {/* User / Org section */}
-        {user && (
-          <div className="px-3 pb-2 border-t border-white/5 pt-3">
-            {!collapsed ? (
-              <div className="px-3 py-2.5 rounded-xl bg-surface-200/40 border border-white/5">
-                <div className="flex items-center gap-2.5 mb-2">
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold text-white ${
-                    organization ? 'bg-gradient-to-br from-purple-500 to-pink-500' : 'bg-gradient-to-br from-primary-500 to-accent-500'
-                  }`}>
-                    {user.name?.charAt(0)?.toUpperCase() || 'U'}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-surface-900 truncate">{user.name}</p>
-                    <p className="text-xs text-surface-600 truncate">{user.email}</p>
-                  </div>
-                </div>
-                {organization && (
-                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-purple-500/10 border border-purple-500/20 mb-2">
-                    <Building2 className="w-3 h-3 text-purple-400 flex-shrink-0" />
-                    <span className="text-xs font-medium text-purple-400 truncate">{organization.name}</span>
-                    <span className="text-xs text-purple-400/60 ml-auto">{organization.plan_tier}</span>
-                  </div>
-                )}
-                <button
-                  onClick={handleLogout}
-                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs text-surface-600 hover:bg-surface-300/60 hover:text-rose-400 transition-colors cursor-pointer"
-                >
-                  <LogOut className="w-3.5 h-3.5" /> Sign Out
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={handleLogout}
-                className="w-full flex items-center justify-center p-2 rounded-xl text-surface-600 hover:bg-surface-200/60 hover:text-rose-400 transition-colors cursor-pointer"
-                title="Sign Out"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
+        {/* Theme Toggle & Collapse Controls */}
+        <div className="p-3 border-t border-[var(--border-subtle)] space-y-1">
+          {/* Theme Toggle Button */}
+          <button
+            onClick={toggleTheme}
+            title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+            className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-card-hover)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
+          >
+            <div className="flex items-center gap-2.5">
+              {theme === 'dark' ? (
+                <Sun className="w-4 h-4 text-amber-500" />
+              ) : (
+                <Moon className="w-4 h-4 text-stone-700" />
+              )}
+              {!collapsed && (
+                <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+              )}
+            </div>
+            {!collapsed && (
+              <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-muted)]">
+                {theme}
+              </span>
             )}
-          </div>
-        )}
+          </button>
 
-        {/* Collapse toggle */}
-        <div className="hidden lg:flex p-3 border-t border-white/5">
+          {/* Desktop Collapse Toggle */}
           <button
             onClick={() => setCollapsed(!collapsed)}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs text-surface-600 hover:bg-surface-200/60 hover:text-surface-800 transition-colors cursor-pointer"
+            className="hidden lg:flex w-full items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs text-[var(--text-muted)] hover:bg-[var(--bg-card-hover)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
           >
             {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
-            {!collapsed && <span>Collapse</span>}
+            {!collapsed && <span>Collapse Sidebar</span>}
           </button>
         </div>
 
-        {/* Version badge */}
+        {/* App Version Badge */}
         {!collapsed && (
-          <div className="px-4 pb-4">
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-surface-200/40 border border-white/5">
-              <Sparkles className="w-3.5 h-3.5 text-accent-400 flex-shrink-0" />
-              <span className="text-xs font-medium text-surface-600">v0.3 — Platform</span>
+          <div className="px-4 pb-4 pt-1">
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[var(--bg-card)] border border-[var(--border-subtle)]">
+              <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+              <span className="text-xs font-medium text-[var(--text-secondary)]">v1.0 — Desktop Companion</span>
             </div>
           </div>
         )}
@@ -184,41 +142,65 @@ export default function Layout() {
 
       {/* Main content area */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Top bar */}
-        <header className="h-12 flex items-center px-4 lg:px-6 border-b border-white/5 bg-surface-50/80 backdrop-blur-md sticky top-0 z-30">
-          {/* Mobile menu */}
-          <button
-            onClick={() => setMobileOpen(true)}
-            className="lg:hidden w-9 h-9 flex items-center justify-center rounded-xl hover:bg-surface-200 text-surface-700 mr-3 cursor-pointer"
-          >
-            <Menu className="w-5 h-5" />
-          </button>
-
-          <div className="flex-1" />
-
-          {/* Status */}
+        {/* Top Header Bar */}
+        <header className="h-14 flex items-center px-4 lg:px-8 border-b border-[var(--border-subtle)] bg-[var(--bg-header)] backdrop-blur-md sticky top-0 z-30 justify-between">
+          {/* Mobile menu trigger button */}
           <div className="flex items-center gap-3">
-            {organization && (
-              <span className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-500/10 border border-purple-500/20 text-xs font-medium text-purple-400">
-                <Building2 className="w-3 h-3" /> {organization.name}
-              </span>
-            )}
-            <span className="flex items-center gap-1.5 text-xs text-surface-600">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              System operational
+            <button
+              onClick={() => setMobileOpen(true)}
+              className="lg:hidden w-9 h-9 flex items-center justify-center rounded-xl hover:bg-[var(--bg-card-hover)] text-[var(--text-primary)] cursor-pointer"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <span className="font-heading text-xl text-[var(--text-primary)] hidden sm:inline-block">
+              WorkPilot AI
             </span>
+          </div>
+
+          {/* Right Status & Theme Controls */}
+          <div className="flex items-center gap-4">
+            {/* System Status Pill */}
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--bg-card)] border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)]">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Local Agent Ready</span>
+            </div>
+
+            {/* Quick Theme Toggle Icon */}
+            <button
+              onClick={toggleTheme}
+              className="w-9 h-9 flex items-center justify-center rounded-full bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-strong)] transition-all cursor-pointer shadow-sm"
+              title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
+            >
+              {theme === 'dark' ? (
+                <Sun className="w-4 h-4 text-amber-400" />
+              ) : (
+                <Moon className="w-4 h-4 text-stone-800" />
+              )}
+            </button>
           </div>
         </header>
 
-        {/* Page content */}
-        <main className="flex-1">
+        {/* Main Page Content */}
+        <main className="flex-1 p-4 lg:p-8 max-w-7xl w-full mx-auto">
           <Outlet />
         </main>
 
         {/* Footer */}
-        <footer className="border-t border-white/5 py-4 px-6">
-          <div className="flex items-center justify-between text-xs text-surface-600">
-            <span>© 2026 WorkPilot AI • DocOps + MeetOps + ActionOps</span>
+        <footer className="border-t border-[var(--border-subtle)] py-4 px-6 lg:px-8 bg-[var(--bg-primary)]">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-[var(--text-muted)] max-w-7xl mx-auto">
+            <span className="font-sans">© 2026 WorkPilot AI — On-Device Intelligence Suite</span>
+            <div className="flex items-center gap-4 font-sans">
+              <Link to="/privacy" className="hover:text-[var(--text-primary)] transition-colors">Privacy</Link>
+              <Link to="/terms" className="hover:text-[var(--text-primary)] transition-colors">Terms</Link>
+              <a
+                href="https://github.com/teenybopper/workpilotAI/issues"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 hover:text-[var(--text-primary)] transition-colors"
+              >
+                <Bug className="w-3 h-3" /> Feedback
+              </a>
+            </div>
           </div>
         </footer>
       </div>

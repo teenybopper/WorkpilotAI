@@ -1,48 +1,66 @@
-"""WorkPilot AI — Application configuration loaded from environment variables."""
+"""WorkPilot AI — Application configuration for local desktop app."""
 
+import os
+from pathlib import Path
 from pydantic_settings import BaseSettings
-from typing import Optional
+
+
+def _default_data_dir() -> str:
+    """Default data directory: ~/WorkPilotAI/"""
+    return str(Path.home() / "WorkPilotAI")
 
 
 class Settings(BaseSettings):
-    # Database
-    database_url: str = "postgresql://workpilot:workpilot_dev@localhost:5432/workpilot"
+    # Data directories
+    data_dir: str = _default_data_dir()
 
-    # MinIO / S3
-    minio_endpoint: str = "localhost:9000"
-    minio_access_key: str = "workpilot"
-    minio_secret_key: str = "workpilot_dev"
-    minio_bucket: str = "workpilot-files"
-    minio_secure: bool = False
+    @property
+    def db_path(self) -> str:
+        return os.path.join(self.data_dir, "data", "workpilot.db")
 
-    # Qdrant
-    qdrant_host: str = "localhost"
-    qdrant_port: int = 6333
-    qdrant_collection: str = "workpilot_chunks"
+    @property
+    def database_url(self) -> str:
+        return f"sqlite:///{self.db_path}"
+
+    @property
+    def files_dir(self) -> str:
+        return os.path.join(self.data_dir, "files")
+
+    @property
+    def chroma_dir(self) -> str:
+        return os.path.join(self.data_dir, "data", "chroma")
+
+    @property
+    def config_file(self) -> str:
+        return os.path.join(self.data_dir, "config.json")
 
     # OpenAI
     openai_api_key: str = ""
 
-    # Hugging Face
+    # Hugging Face (for pyannote diarization)
     hf_token: str = ""
 
     # Embedding
     embedding_model: str = "all-MiniLM-L6-v2"
 
-    # Auth / JWT
-    secret_key: str = "workpilot-dev-secret-change-in-production"
+    # ChromaDB collection
+    chroma_collection: str = "workpilot_chunks"
 
     # App
     app_env: str = "development"
-    app_host: str = "0.0.0.0"
+    app_host: str = "127.0.0.1"
     app_port: int = 8000
-
-    # Redis
-    redis_url: str = "redis://localhost:6379/0"
 
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        extra = "ignore"
+
+    def ensure_directories(self):
+        """Create all required data directories on first run."""
+        os.makedirs(os.path.join(self.data_dir, "data"), exist_ok=True)
+        os.makedirs(self.files_dir, exist_ok=True)
+        os.makedirs(self.chroma_dir, exist_ok=True)
 
 
 settings = Settings()

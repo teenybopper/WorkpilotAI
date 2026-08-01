@@ -5,3 +5,4 @@ from app.routers.meetops_sessions import router as meetops_sessions_router
 from app.routers.integrations import router as integrations_router
 from app.routers.actions import router as actions_router
 from app.routers.settings import router as settings_router
+from app.routers.local_settings import router as local_settings_router

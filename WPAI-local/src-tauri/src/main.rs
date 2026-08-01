@@ -9,7 +9,8 @@ mod upload;
 mod session;
 mod tray;
 
-use log::info;
+use log::{info, warn};
+use tauri_plugin_shell::ShellExt;
 
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -28,9 +29,26 @@ fn main() {
         ])
         .setup(|app| {
             tray::setup_tray(app)?;
+
+            // Automatically launch Python backend sidecar on app startup
+            match app.shell().sidecar("workpilot-backend") {
+                Ok(cmd) => match cmd.spawn() {
+                    Ok((_rx, child)) => {
+                        info!("🚀 Successfully spawned backend sidecar process (PID: {})", child.pid());
+                    }
+                    Err(e) => {
+                        warn!("⚠️  Could not spawn sidecar process: {} (Normal if running dev backend on port 8000)", e);
+                    }
+                },
+                Err(e) => {
+                    info!("ℹ️  Sidecar binary not bundled in dev environment: {}", e);
+                }
+            }
+
             info!("Companion app initialized");
             Ok(())
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+

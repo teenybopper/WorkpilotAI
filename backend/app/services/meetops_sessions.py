@@ -1,16 +1,14 @@
-"""MeetOps Sessions service — manage live meeting capture sessions."""
+"""MeetOps Sessions service — manage live meeting capture sessions (local)."""
 
 import logging
 import uuid
 from datetime import datetime
 from sqlalchemy.orm import Session as DBSession
 
-from app.config import settings
 from app.models import (
     MeetingSession, Source, MeetingCaptureMode, SessionStatus,
     SourceType, SourceStatus, User,
 )
-from app.services.entitlements import check_feature
 
 logger = logging.getLogger(__name__)
 
@@ -26,23 +24,9 @@ def start_session(
     consent_given: bool = False,
     config: dict | None = None,
 ) -> MeetingSession:
-    """Start a new MeetOps capture session with entitlement checks."""
+    """Start a new MeetOps capture session (no entitlement checks in local mode)."""
 
-    # Entitlement check
-    if capture_mode == MeetingCaptureMode.BOT_JOIN:
-        if not check_feature(user, "meetops_bot_join"):
-            raise PermissionError(
-                "Your plan does not include meeting bot join. "
-                "Upgrade to Team or Enterprise to use this feature."
-            )
-        if not meeting_url:
-            raise ValueError("meeting_url is required for bot_join mode")
-        if not consent_given:
-            raise ValueError("Consent must be given before joining a meeting as a bot")
-
-    elif capture_mode == MeetingCaptureMode.LOCAL_LISTENER:
-        if not check_feature(user, "meetops_local_listener"):
-            raise PermissionError("Your plan does not include local listener mode.")
+    if capture_mode == MeetingCaptureMode.LOCAL_LISTENER:
         if not consent_given:
             raise ValueError("Consent must be given before capturing audio")
 
@@ -50,8 +34,7 @@ def start_session(
         workspace_id=workspace_id,
         capture_mode=capture_mode,
         status=SessionStatus.PENDING,
-        platform=platform or _infer_platform(capture_mode, meeting_url),
-        meeting_url=meeting_url,
+        platform=platform or _infer_platform(capture_mode),
         title=title or f"Meeting {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}",
         config_json=config,
         consent_given=consent_given,
@@ -60,10 +43,7 @@ def start_session(
     db.commit()
     db.refresh(session)
 
-    # Dispatch based on mode
-    if capture_mode == MeetingCaptureMode.BOT_JOIN:
-        _dispatch_bot_join(session, db)
-    elif capture_mode == MeetingCaptureMode.LOCAL_LISTENER:
+    if capture_mode == MeetingCaptureMode.LOCAL_LISTENER:
         _start_local_listener(session, db)
 
     logger.info(
@@ -180,28 +160,13 @@ def list_sessions(
 
 # ── Internal helpers ──────────────────────────────────────────────────────
 
-def _infer_platform(mode: MeetingCaptureMode, url: str | None) -> str:
-    """Infer the meeting platform from mode and URL."""
+def _infer_platform(mode: MeetingCaptureMode) -> str:
+    """Infer the meeting platform from mode."""
     if mode == MeetingCaptureMode.LOCAL_LISTENER:
         return "system_audio"
-    if url:
-        if "zoom.us" in url:
-            return "zoom"
-        if "meet.google.com" in url:
-            return "google_meet"
-        if "teams.microsoft.com" in url:
-            return "teams"
+    if mode == MeetingCaptureMode.UPLOAD:
+        return "file_upload"
     return "unknown"
-
-
-def _dispatch_bot_join(session: MeetingSession, db: DBSession):
-    """Dispatch a bot to join the meeting (placeholder for async worker)."""
-    session.status = SessionStatus.JOINING
-    session.started_at = datetime.utcnow()
-    db.commit()
-    # TODO: In production, this would enqueue an async worker task that uses
-    # Recall.ai or a platform-specific bot SDK to join the meeting.
-    logger.info(f"Bot join dispatched for session {session.id} -> {session.meeting_url}")
 
 
 def _start_local_listener(session: MeetingSession, db: DBSession):
