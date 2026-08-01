@@ -1,9 +1,9 @@
-name: 'Publish Release'
+name: "Publish Release"
 
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 jobs:
   publish-tauri:
@@ -13,12 +13,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: 'macos-latest'
-            args: ''
-          - platform: 'ubuntu-22.04'
-            args: ''
-          - platform: 'windows-latest'
-            args: ''
+          - platform: "macos-latest"
+            args: ""
+          - platform: "ubuntu-22.04"
+            args: ""
+          - platform: "windows-latest"
+            args: ""
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -45,7 +45,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
       - name: Build Python Backend Executable (PyInstaller Sidecar)
         run: |
@@ -61,17 +61,15 @@ jobs:
             cp dist/workpilot-backend ../WPAI-local/src-tauri/binaries/workpilot-backend-x86_64-unknown-linux-gnu
           fi
 
-
-
       - name: Build and Publish Tauri App
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          projectPath: './WPAI-local'
+          projectPath: "./WPAI-local"
           tagName: ${{ github.ref_name }}
-          releaseName: 'WorkPilot Companion v__VERSION__'
-          releaseBody: 'See the assets below to download the companion app installer for your operating system.'
-          releaseDraft: true
+          releaseName: "WorkPilot Companion v__VERSION__"
+          releaseBody: "See the assets below to download the companion app installer for your operating system."
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
