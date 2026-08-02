@@ -36,7 +36,7 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev libpipewire-0.3-dev
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev libpipewire-0.3-dev
 
       - name: Install Frontend Dependencies (if package.json exists)
         run: test -f package.json && npm install || echo "No package.json found, skipping npm install"
@@ -62,6 +62,8 @@ jobs:
           else
             cp dist/workpilot-backend ../WPAI-local/src-tauri/binaries/workpilot-backend-x86_64-unknown-linux-gnu
           fi
+          chmod +x ../WPAI-local/src-tauri/binaries/* 2>/dev/null || true
+
 
 
       - name: Build and Publish Tauri App

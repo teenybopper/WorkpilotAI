@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/nicehash/tauri/dev/core/tauri-config-schema/schema.json",
+  "$schema": "https://schema.tauri.app/config/2",
   "productName": "WorkPilot Companion",
   "version": "0.1.0",
   "identifier": "ai.workpilot.companion",
@@ -20,11 +20,6 @@
         "visible": false
       }
     ],
-    "trayIcon": {
-      "iconPath": "icons/icon.png",
-      "iconAsTemplate": true,
-      "tooltip": "WorkPilot Companion"
-    },
     "security": {
       "csp": null
     }

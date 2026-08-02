@@ -1,19 +1,19 @@
 """Embedding generation utility using sentence-transformers."""
 
-from sentence_transformers import SentenceTransformer
 from app.config import settings
 import logging
 import numpy as np
 
 logger = logging.getLogger(__name__)
 
-_model: SentenceTransformer | None = None
+_model = None
 
 
-def get_embedding_model() -> SentenceTransformer:
+def get_embedding_model():
     """Load the sentence-transformer model (lazy singleton)."""
     global _model
     if _model is None:
+        from sentence_transformers import SentenceTransformer
         logger.info(f"Loading embedding model: {settings.embedding_model}")
         _model = SentenceTransformer(settings.embedding_model)
         logger.info("Embedding model loaded successfully")
