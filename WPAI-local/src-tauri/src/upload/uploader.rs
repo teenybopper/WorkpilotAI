@@ -6,6 +6,7 @@ use log::{info, debug};
 use reqwest::multipart;
 use serde::Deserialize;
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct ChunkUploadResponse {
     pub session_id: String,
@@ -13,6 +14,7 @@ pub struct ChunkUploadResponse {
     pub chunks_received: u32,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct SessionCreateResponse {
     pub session_id: String,

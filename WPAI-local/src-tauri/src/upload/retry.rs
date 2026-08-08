@@ -89,6 +89,7 @@ impl OfflineBuffer {
     }
 
     /// Get all buffered chunks for a session.
+    #[allow(dead_code)]
     pub fn get_buffered_sessions(&self) -> Vec<String> {
         let mut sessions = Vec::new();
         if let Ok(entries) = std::fs::read_dir(&self.buffer_dir) {
@@ -104,6 +105,7 @@ impl OfflineBuffer {
     }
 
     /// Count buffered chunks.
+    #[allow(dead_code)]
     pub fn buffered_count(&self) -> u32 {
         self.buffered_count
     }

@@ -9,6 +9,7 @@ jobs:
   publish-tauri:
     permissions:
       contents: write
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -74,6 +75,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NO_STRIP: "true"
+          APPIMAGE_EXTRACT_AND_RUN: "1"
         with:
           projectPath: "./WPAI-local"
           tagName: ${{ github.ref_name }}

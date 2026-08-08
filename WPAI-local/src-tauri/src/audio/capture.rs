@@ -52,6 +52,7 @@ impl Default for CaptureConfig {
 }
 
 /// Audio capture state.
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum CaptureState {
     Idle,
@@ -94,6 +95,7 @@ impl StreamHandle {
 /// - Windows: WASAPI loopback
 /// - macOS: ScreenCaptureKit + CoreAudio
 /// - Linux: PipeWire
+#[allow(dead_code)]
 pub trait AudioCaptureBackend: Send + Sync {
     /// List all available audio devices on this system.
     fn list_devices(&self) -> Result<Vec<AudioDevice>, String>;

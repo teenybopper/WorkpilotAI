@@ -12,6 +12,7 @@ use std::io::Cursor;
 pub const CHUNK_DURATION_SECS: f32 = 5.0;
 
 /// WAV specification for Whisper-compatible audio.
+#[allow(dead_code)]
 pub fn wav_spec() -> WavSpec {
     WavSpec {
         channels: DEFAULT_CHANNELS,
@@ -26,6 +27,7 @@ pub fn wav_spec() -> WavSpec {
 pub struct AudioChunk {
     pub index: u32,
     pub data: Vec<u8>,  // WAV-encoded bytes
+    #[allow(dead_code)]
     pub duration_secs: f32,
     pub sample_count: usize,
 }
@@ -105,6 +107,7 @@ impl AudioChunker {
     }
 
     /// Get the current chunk index (number of chunks produced).
+    #[allow(dead_code)]
     pub fn chunks_produced(&self) -> u32 {
         self.chunk_index
     }

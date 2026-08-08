@@ -7,11 +7,13 @@ use super::capture::*;
 use log::{info, error};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
+#[allow(dead_code)]
 pub struct MicrophoneCapture {
     state: CaptureState,
     stream: Option<StreamHandle>,
 }
 
+#[allow(dead_code)]
 impl MicrophoneCapture {
     pub fn new() -> Self {
         Self {
