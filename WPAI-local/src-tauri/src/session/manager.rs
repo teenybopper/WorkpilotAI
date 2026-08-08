@@ -94,10 +94,12 @@ pub async fn start_listening(
     workspace_id: String,
     title: Option<String>,
 ) -> Result<SessionState, String> {
-    let mut state = SESSION.lock().map_err(|e| e.to_string())?;
+    {
+        let state = SESSION.lock().map_err(|e| e.to_string())?;
 
-    if state.status == "listening" {
-        return Err("Already listening. Stop the current session first.".to_string());
+        if state.status == "listening" {
+            return Err("Already listening. Stop the current session first.".to_string());
+        }
     }
 
     // 1. Create session on backend
@@ -182,6 +184,7 @@ pub async fn start_listening(
         res.keepalive_task = Some(keepalive_handle);
     }
 
+    let mut state = SESSION.lock().map_err(|e| e.to_string())?;
     *state = SessionState {
         session_id: Some(session_id),
         status: "listening".to_string(),
@@ -196,14 +199,19 @@ pub async fn start_listening(
 /// Stop the current listening session.
 #[tauri::command]
 pub async fn stop_listening() -> Result<SessionState, String> {
-    let mut state = SESSION.lock().map_err(|e| e.to_string())?;
+    let session_id = {
+        let mut state = SESSION.lock().map_err(|e| e.to_string())?;
 
-    if state.status != "listening" {
-        return Err("Not currently listening.".to_string());
-    }
+        if state.status != "listening" {
+            return Err("Not currently listening.".to_string());
+        }
 
-    let session_id = state.session_id.clone()
-        .ok_or_else(|| "No active session".to_string())?;
+        let sid = state.session_id.clone()
+            .ok_or_else(|| "No active session".to_string())?;
+
+        state.status = "processing".to_string();
+        sid
+    };
 
     // 1. Release active capture resources
     let mut capture_backend = None;
@@ -255,9 +263,6 @@ pub async fn stop_listening() -> Result<SessionState, String> {
     }
 
     // 3. Finalize session on backend
-    state.status = "processing".to_string();
-    drop(state); // Release lock before async call
-
     match uploader::finalize_session(&session_id).await {
         Ok(_) => {
             let mut state = SESSION.lock().map_err(|e| e.to_string())?;
