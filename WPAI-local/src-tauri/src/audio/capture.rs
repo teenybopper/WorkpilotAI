@@ -63,6 +63,31 @@ pub enum CaptureState {
 /// Shared audio sample buffer.
 pub type SampleBuffer = Arc<Mutex<Vec<f32>>>;
 
+/// Thread-safe wrapper around `cpal::Stream`.
+///
+/// `cpal::Stream` is intentionally `!Send + !Sync` due to platform-specific
+/// raw pointers. This wrapper is safe because the stream is always protected
+/// by a `Mutex` in `ActiveSessionResources`, guaranteeing exclusive access.
+pub struct StreamHandle(cpal::Stream);
+
+// SAFETY: The stream is always accessed behind a Mutex, preventing data races.
+// It is created and dropped on the same logical control path.
+unsafe impl Send for StreamHandle {}
+unsafe impl Sync for StreamHandle {}
+
+impl StreamHandle {
+    /// Wrap a `cpal::Stream` in a thread-safe handle.
+    pub fn new(stream: cpal::Stream) -> Self {
+        Self(stream)
+    }
+
+    /// Pause the underlying audio stream.
+    pub fn pause(&self) -> Result<(), cpal::PauseStreamError> {
+        use cpal::traits::StreamTrait;
+        self.0.pause()
+    }
+}
+
 /// Platform-agnostic audio capture trait.
 ///
 /// Each platform implements this for their native audio API:

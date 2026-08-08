@@ -9,7 +9,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 pub struct PipeWireCapture {
     state: CaptureState,
-    stream: Option<cpal::Stream>,
+    stream: Option<StreamHandle>,
 }
 
 impl PipeWireCapture {
@@ -128,7 +128,7 @@ impl AudioCaptureBackend for PipeWireCapture {
 
         stream.play().map_err(|e| format!("Failed to play Linux capture stream: {}", e))?;
 
-        self.stream = Some(stream);
+        self.stream = Some(StreamHandle::new(stream));
         self.state = CaptureState::Capturing;
         Ok(())
     }

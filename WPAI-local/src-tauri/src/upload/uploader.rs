@@ -2,7 +2,7 @@
 
 use super::chunker::AudioChunk;
 use crate::auth::device_auth;
-use log::{info, error, debug};
+use log::{info, debug};
 use reqwest::multipart;
 use serde::Deserialize;
 

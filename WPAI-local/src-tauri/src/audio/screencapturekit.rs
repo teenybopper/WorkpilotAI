@@ -9,7 +9,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 pub struct ScreenCaptureKitCapture {
     state: CaptureState,
-    stream: Option<cpal::Stream>,
+    stream: Option<StreamHandle>,
 }
 
 impl ScreenCaptureKitCapture {
@@ -94,7 +94,7 @@ impl AudioCaptureBackend for ScreenCaptureKitCapture {
 
         stream.play().map_err(|e| format!("Failed to play macOS capture stream: {}", e))?;
 
-        self.stream = Some(stream);
+        self.stream = Some(StreamHandle::new(stream));
         self.state = CaptureState::Capturing;
         Ok(())
     }

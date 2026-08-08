@@ -7,8 +7,9 @@
 
 use log::info;
 use tauri::{
+    image::Image,
     menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem},
-    tray::TrayIconEvent,
+    tray::TrayIconBuilder,
     App, Manager,
 };
 
@@ -25,12 +26,14 @@ pub fn setup_tray(app: &App) -> Result<(), Box<dyn std::error::Error>> {
         .items(&[&show_item, &feedback_item, &separator, &quit_item])
         .build()?;
 
-    // Attach the menu to the tray icon
-    if let Some(tray) = app.tray_by_id("main") {
-        tray.set_menu(Some(menu))?;
-        tray.set_tooltip(Some("WorkPilot Companion — On-Device Audio Capture"))?;
+    let icon_bytes = include_bytes!("../../icons/32x32.png");
+    let icon = Image::from_bytes(icon_bytes)?;
 
-        tray.on_menu_event(move |app, event| match event.id().as_ref() {
+    let _tray = TrayIconBuilder::with_id("main")
+        .tooltip("WorkPilot Companion — On-Device Audio Capture")
+        .icon(icon)
+        .menu(&menu)
+        .on_menu_event(move |app, event| match event.id().as_ref() {
             "show" => {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.show();
@@ -44,9 +47,10 @@ pub fn setup_tray(app: &App) -> Result<(), Box<dyn std::error::Error>> {
                 app.exit(0);
             }
             _ => {}
-        });
-    }
+        })
+        .build(app)?;
 
     info!("System tray initialized with menu");
     Ok(())
 }
+

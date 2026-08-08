@@ -9,7 +9,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 pub struct WasapiCapture {
     state: CaptureState,
-    stream: Option<cpal::Stream>,
+    stream: Option<StreamHandle>,
 }
 
 impl WasapiCapture {
@@ -96,7 +96,7 @@ impl AudioCaptureBackend for WasapiCapture {
 
         stream.play().map_err(|e| format!("Failed to play WASAPI loopback stream: {}", e))?;
 
-        self.stream = Some(stream);
+        self.stream = Some(StreamHandle::new(stream));
         self.state = CaptureState::Capturing;
         Ok(())
     }

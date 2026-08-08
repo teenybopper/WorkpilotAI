@@ -9,7 +9,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 pub struct MicrophoneCapture {
     state: CaptureState,
-    stream: Option<cpal::Stream>,
+    stream: Option<StreamHandle>,
 }
 
 impl MicrophoneCapture {
@@ -89,7 +89,7 @@ impl AudioCaptureBackend for MicrophoneCapture {
 
         stream.play().map_err(|e| format!("Failed to play input stream: {}", e))?;
 
-        self.stream = Some(stream);
+        self.stream = Some(StreamHandle::new(stream));
         self.state = CaptureState::Capturing;
         Ok(())
     }
