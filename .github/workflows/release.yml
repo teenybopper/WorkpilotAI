@@ -55,9 +55,17 @@ jobs:
       - name: Build Python Backend Executable (PyInstaller Sidecar)
         shell: bash
         run: |
+          if [ "${{ runner.os }}" != "macOS" ]; then
+            pip install torch --index-url https://download.pytorch.org/whl/cpu
+          fi
           pip install pyinstaller uvicorn fastapi python-multipart pydantic-settings pydantic sqlalchemy chromadb openai sentence-transformers python-dotenv httpx passlib python-jose cryptography alembic
           cd backend
-          pyinstaller --onefile --name workpilot-backend main.py
+          pyinstaller --onefile --name workpilot-backend \
+            --exclude-module nvidia \
+            --exclude-module triton \
+            --exclude-module matplotlib \
+            --exclude-module tkinter \
+            main.py
           mkdir -p ../WPAI-local/src-tauri/binaries
           if [ "${{ runner.os }}" = "Windows" ]; then
             cp dist/workpilot-backend.exe ../WPAI-local/src-tauri/binaries/workpilot-backend-x86_64-pc-windows-msvc.exe
