@@ -9,7 +9,6 @@ jobs:
   publish-tauri:
     permissions:
       contents: write
-    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
