@@ -45,19 +45,23 @@ jobs:
         run: npm install
         working-directory: ./WPAI-local
 
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
       - name: Build Python Backend Executable (PyInstaller Sidecar)
         shell: bash
         run: |
           if [ "${{ runner.os }}" != "macOS" ]; then
-            pip install torch --index-url https://download.pytorch.org/whl/cpu
+            uv pip install --system torch --index-url https://download.pytorch.org/whl/cpu
+            uv pip install --system pyinstaller uvicorn fastapi python-multipart pydantic-settings pydantic sqlalchemy chromadb openai sentence-transformers python-dotenv httpx passlib python-jose cryptography alembic --extra-index-url https://download.pytorch.org/whl/cpu
+          else
+            uv pip install --system pyinstaller uvicorn fastapi python-multipart pydantic-settings pydantic sqlalchemy chromadb openai sentence-transformers python-dotenv httpx passlib python-jose cryptography alembic
           fi
-          pip install pyinstaller uvicorn fastapi python-multipart pydantic-settings pydantic sqlalchemy chromadb openai sentence-transformers python-dotenv httpx passlib python-jose cryptography alembic
           cd backend
           pyinstaller --onefile --name workpilot-backend \
             --exclude-module nvidia \
@@ -76,14 +80,13 @@ jobs:
           fi
           chmod +x ../WPAI-local/src-tauri/binaries/* 2>/dev/null || true
 
-
-
       - name: Build and Publish Tauri App
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NO_STRIP: "true"
           APPIMAGE_EXTRACT_AND_RUN: "1"
+          CARGO_BUILD_JOBS: "2"
         with:
           projectPath: "./WPAI-local"
           tagName: ${{ github.ref_name }}
