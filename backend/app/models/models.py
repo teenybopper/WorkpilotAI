@@ -80,10 +80,12 @@ class ActionType(str, enum.Enum):
     UPDATE_DOC = "update_doc"
     SEND_MESSAGE = "send_message"
     ADD_COMMENT = "add_comment"
+    SCHEDULE_MEETING = "schedule_meeting"
     CUSTOM = "custom"
 
 
 class ApprovalStatus(str, enum.Enum):
+    PROPOSED = "proposed"
     AUTO_EXECUTED = "auto_executed"
     NOTIFIED = "notified"
     PENDING_APPROVAL = "pending_approval"
@@ -139,6 +141,7 @@ class Workspace(Base):
     audit_events = relationship("AuditEvent", back_populates="workspace", cascade="all, delete-orphan")
     meeting_sessions = relationship("MeetingSession", back_populates="workspace", cascade="all, delete-orphan")
     action_items = relationship("ActionItem", back_populates="workspace", cascade="all, delete-orphan")
+    meeting_requests = relationship("MeetingRequest", back_populates="workspace", cascade="all, delete-orphan")
     activity_logs = relationship("ActivityLog", back_populates="workspace", cascade="all, delete-orphan")
 
 
@@ -166,6 +169,7 @@ class Source(Base):
     tasks = relationship("Task", back_populates="source")
     decisions = relationship("Decision", back_populates="source")
     risk_flags = relationship("RiskFlag", back_populates="source")
+    meeting_requests = relationship("MeetingRequest", back_populates="source")
     meeting_session = relationship("MeetingSession", back_populates="source", uselist=False)
 
 
@@ -290,6 +294,25 @@ class RiskFlag(Base):
     source = relationship("Source", back_populates="risk_flags")
 
 
+class MeetingRequest(Base):
+    __tablename__ = "meeting_requests"
+
+    id = Column(String(36), primary_key=True, default=_uuid_str)
+    workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=False)
+    source_id = Column(String(36), ForeignKey("sources.id"), nullable=True)
+    title = Column(String(255), nullable=False)
+    participants = Column(Text, nullable=True)
+    proposed_time = Column(String(255), nullable=True)
+    purpose = Column(Text, nullable=True)
+    evidence_text = Column(Text, nullable=True)
+    confidence = Column(Float, nullable=True, default=0.8)
+    status = Column(String(64), default="pending")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    workspace = relationship("Workspace", back_populates="meeting_requests")
+    source = relationship("Source", back_populates="meeting_requests")
+
+
 # ── MeetOps Sessions ────────────────────────────────────────────────────
 
 class MeetingSession(Base):
@@ -367,6 +390,22 @@ class ActionItem(Base):
     workspace = relationship("Workspace", back_populates="action_items")
     target_tool = relationship("ConnectedTool", back_populates="action_items")
     executions = relationship("ActionExecution", back_populates="action_item", cascade="all, delete-orphan")
+
+    @property
+    def approval_state(self):
+        return self.approval_status
+
+    @approval_state.setter
+    def approval_state(self, value):
+        self.approval_status = value
+
+    @property
+    def risk_level(self):
+        return self.severity
+
+    @risk_level.setter
+    def risk_level(self, value):
+        self.severity = value
 
 
 class ActionExecution(Base):

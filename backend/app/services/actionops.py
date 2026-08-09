@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session as DBSession
 
 from app.models import (
     ActionItem, ActionExecution, ConnectedTool, Task, Decision, RiskFlag,
-    Source, ActionType, ApprovalStatus, ActionSeverity, ToolStatus,
+    MeetingRequest, Source, ActionType, ApprovalStatus, ActionSeverity, ToolStatus,
 )
 from app.utils.llm import llm_json
 
@@ -26,6 +26,7 @@ def generate_action_items(
     tasks = db.query(Task).filter(Task.workspace_id == workspace_id).all()
     decisions = db.query(Decision).filter(Decision.workspace_id == workspace_id).all()
     risks = db.query(RiskFlag).filter(RiskFlag.workspace_id == workspace_id).all()
+    meeting_requests = db.query(MeetingRequest).filter(MeetingRequest.workspace_id == workspace_id).all()
 
     # Get available connected tools
     tools = db.query(ConnectedTool).filter(
@@ -72,6 +73,16 @@ def generate_action_items(
             "entity_id": str(r.id),
         })
 
+    for mr in meeting_requests:
+        evidence_parts.append(f"[MEETING_REQUEST] {mr.title} (participants: {mr.participants or 'TBD'}, "
+                              f"proposed_time: {mr.proposed_time or 'TBD'}, purpose: {mr.purpose or 'Follow-up'})")
+        evidence_items.append({
+            "source_id": str(mr.source_id) if mr.source_id else None,
+            "text": f"{mr.title} with {mr.participants or 'team'}",
+            "type": "meeting_request",
+            "entity_id": str(mr.id),
+        })
+
     if not evidence_parts:
         logger.info(f"No evidence found in workspace {workspace_id} for action planning")
         return []
@@ -89,22 +100,22 @@ WORKSPACE EVIDENCE:
 {evidence_text}
 
 For each proposed action, return a JSON object with an "actions" array. Each action should have:
-- "action_type": one of "create_task", "update_task", "create_doc", "update_doc", "send_message", "custom"
+- "action_type": one of "create_task", "update_task", "create_doc", "update_doc", "send_message", "schedule_meeting", "custom"
 - "title": short action title
 - "description": detailed description of what to do
-- "target_tool": which connected tool type to use (e.g., "jira", "slack", "google_docs"), or null if no tool matches
+- "target_tool": which connected tool type to use (e.g., "jira", "slack", "google_docs", "google_calendar"), or null if no tool matches
 - "target_object_id": existing object to update (e.g., ticket ID), or null for new items
 - "owner": who should own this action
 - "confidence": 0-1 how confident you are this action is correct
 - "risk_level": "low", "medium", or "high"
-- "payload": tool-specific payload object
+- "payload": tool-specific payload object (for schedule_meeting include: title, participants, proposed_time, purpose)
 - "evidence_refs": array of indices referencing which evidence items support this action
 
 Rules:
 - Only propose actions for tools that are actually connected
 - If no tool matches, still propose the action with target_tool=null
 - Score confidence based on how clear the evidence is
-- Mark anything that modifies existing data as medium+ risk
+- Mark calendar scheduling and data modifying actions as medium+ risk
 - Mark destructive or high-impact actions as high risk
 
 Return ONLY the JSON object."""
@@ -116,11 +127,14 @@ Return ONLY the JSON object."""
     for action in actions_data:
         # Map action type
         action_type_map = {
-            "create_task": ActionType.CREATE_TASK,
-            "update_task": ActionType.UPDATE_TASK,
+            "create_task": ActionType.CREATE_TICKET,
+            "update_task": ActionType.UPDATE_TICKET,
+            "create_ticket": ActionType.CREATE_TICKET,
+            "update_ticket": ActionType.UPDATE_TICKET,
             "create_doc": ActionType.CREATE_DOC,
             "update_doc": ActionType.UPDATE_DOC,
             "send_message": ActionType.SEND_MESSAGE,
+            "schedule_meeting": ActionType.SCHEDULE_MEETING,
         }
         action_type = action_type_map.get(action.get("action_type"), ActionType.CUSTOM)
 
@@ -135,11 +149,13 @@ Return ONLY the JSON object."""
 
         # Map risk level
         risk_map = {
-            "low": ActionSeverity.LOW,
+            "low": ActionSeverity.LIGHT,
+            "light": ActionSeverity.LIGHT,
             "medium": ActionSeverity.MEDIUM,
-            "high": ActionSeverity.HIGH,
+            "high": ActionSeverity.HEAVY,
+            "heavy": ActionSeverity.HEAVY,
         }
-        risk_level = risk_map.get(action.get("risk_level", "low"), ActionSeverity.LOW)
+        risk_level = risk_map.get(action.get("risk_level", "low"), ActionSeverity.LIGHT)
 
         # Gather source evidence for this action
         evidence_refs = action.get("evidence_refs", [])
@@ -159,8 +175,8 @@ Return ONLY the JSON object."""
             payload_json=action.get("payload"),
             source_evidence_json=source_evidence if source_evidence else None,
             confidence=action.get("confidence", 0.5),
-            risk_level=risk_level,
-            approval_state=ApprovalStatus.PROPOSED,
+            severity=risk_level,
+            approval_status=ApprovalStatus.PROPOSED,
         )
         db.add(plan)
         action_items.append(plan)

@@ -9,6 +9,7 @@ const TOOL_ICONS = {
   jira: '🎫',
   slack: '💬',
   google_docs: '📄',
+  google_calendar: '📅',
   email: '✉️',
 };
 

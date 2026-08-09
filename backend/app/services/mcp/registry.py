@@ -42,11 +42,13 @@ def _register_builtins():
     from app.services.mcp.slack_adapter import SlackAdapter
     from app.services.mcp.gdocs_adapter import GDocsAdapter
     from app.services.mcp.email_adapter import EmailAdapter
+    from app.services.mcp.gcal_adapter import GCalendarAdapter
 
     register_adapter(JiraAdapter())
     register_adapter(SlackAdapter())
     register_adapter(GDocsAdapter())
     register_adapter(EmailAdapter())
+    register_adapter(GCalendarAdapter())
 
 
 try:

@@ -55,6 +55,7 @@ class ActionTypeEnum(str, Enum):
     CREATE_DOC = "create_doc"
     UPDATE_DOC = "update_doc"
     SEND_MESSAGE = "send_message"
+    SCHEDULE_MEETING = "schedule_meeting"
     CUSTOM = "custom"
 
 

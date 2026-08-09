@@ -12,7 +12,7 @@ import chromadb
 from app.config import settings
 from app.models import (
     Source, TranscriptSegment, Speaker, Task, Decision,
-    RiskFlag, SourceStatus, TaskPriority, TaskStatus, RiskSeverity,
+    RiskFlag, MeetingRequest, SourceStatus, TaskPriority, TaskStatus, RiskSeverity,
 )
 from app.utils.storage import get_temp_path
 from app.utils.embeddings import generate_embeddings, chunk_text
@@ -133,7 +133,7 @@ def extract_meeting_actions(source: Source, db: Session) -> dict:
     ).order_by(TranscriptSegment.start_time).all()
 
     if not segments:
-        return {"tasks": [], "decisions": [], "risks": []}
+        return {"tasks": [], "decisions": [], "risks": [], "meeting_requests": []}
 
     # Build full transcript text
     transcript_text = "\n".join(
@@ -153,6 +153,7 @@ Return a JSON object with:
 - "tasks": array of objects with "text", "owner" (if mentioned), "due_date" (if mentioned), "priority" (low/medium/high/critical), "evidence" (exact quote)
 - "decisions": array of objects with "text", "approver" (the speaker who made/approved it), "evidence" (exact quote), "confidence" (0-1)
 - "risks": array of objects with "text", "severity" (low/medium/high/critical), "evidence" (exact quote)
+- "meeting_requests": array of objects with "title", "participants" (array or string), "proposed_time" (e.g., "Next Tuesday at 2 PM"), "purpose" (agenda/reason for meeting), "evidence" (exact quote), "confidence" (0-1)
 - "summary": a 2-3 paragraph summary of the meeting
 - "key_topics": array of main topics discussed
 - "unresolved_questions": array of questions that were raised but not answered
@@ -207,15 +208,39 @@ Return a JSON object with:
         db.add(risk)
         risks.append(risk)
 
+    # Store follow-up meeting requests
+    meeting_requests = []
+    for mr in result.get("meeting_requests", []):
+        participants_val = mr.get("participants")
+        if isinstance(participants_val, list):
+            participants_str = ", ".join(str(p) for p in participants_val)
+        else:
+            participants_str = str(participants_val) if participants_val else None
+
+        req = MeetingRequest(
+            workspace_id=source.workspace_id,
+            source_id=source.id,
+            title=mr.get("title", "Follow-up Meeting"),
+            participants=participants_str,
+            proposed_time=mr.get("proposed_time"),
+            purpose=mr.get("purpose"),
+            evidence_text=mr.get("evidence"),
+            confidence=mr.get("confidence", 0.8),
+            status="pending",
+        )
+        db.add(req)
+        meeting_requests.append(req)
+
     db.commit()
 
     logger.info(f"Extracted from {source.filename}: {len(tasks)} tasks, "
-                 f"{len(decisions)} decisions, {len(risks)} risks")
+                 f"{len(decisions)} decisions, {len(risks)} risks, {len(meeting_requests)} meeting requests")
 
     return {
         "tasks": tasks,
         "decisions": decisions,
         "risks": risks,
+        "meeting_requests": meeting_requests,
         "summary": result.get("summary", ""),
         "key_topics": result.get("key_topics", []),
         "unresolved_questions": result.get("unresolved_questions", []),

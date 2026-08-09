@@ -17,6 +17,7 @@ const INTEGRATION_CATALOG = [
   { type: 'asana', name: 'Asana', icon: '🎯', description: 'Create tasks, manage projects, track milestones', auth: 'API Token', category: 'Project Management' },
   { type: 'github', name: 'GitHub', icon: '🐙', description: 'Create issues, comment on PRs, manage project boards', auth: 'Personal Access Token', category: 'Development' },
   { type: 'google_docs', name: 'Google Docs', icon: '📄', description: 'Create documents, append content, share with team', auth: 'OAuth 2.0', category: 'Documentation' },
+  { type: 'google_calendar', name: 'Google Calendar', icon: '📅', description: 'Schedule follow-up meetings and calendar events', auth: 'OAuth 2.0', category: 'Communication' },
   { type: 'notion', name: 'Notion', icon: '📝', description: 'Create pages, update databases, add content blocks', auth: 'Integration Token', category: 'Documentation' },
   { type: 'slack', name: 'Slack', icon: '💬', description: 'Send messages, create channels, post updates and summaries', auth: 'Bot Token', category: 'Communication' },
   { type: 'email', name: 'Email / SMTP', icon: '✉️', description: 'Send automated email notifications & summaries', auth: 'SMTP Credentials', category: 'Communication' },
@@ -245,6 +246,19 @@ export default function ActionOpsPage() {
                           </span>
                         </div>
                         {action.description && <p className="text-xs text-[var(--text-secondary)] mb-2">{action.description}</p>}
+                        {(action.payload_json || action.payload) && (
+                          <div className="my-2.5 p-2.5 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-xs space-y-1">
+                            {action.action_type === 'schedule_meeting' && (
+                              <div className="flex flex-wrap gap-x-4 gap-y-1 text-[var(--text-secondary)]">
+                                <span>📅 <strong>Time:</strong> {(action.payload_json || action.payload).proposed_time || 'TBD'}</span>
+                                <span>👥 <strong>Participants:</strong> {Array.isArray((action.payload_json || action.payload).participants) ? (action.payload_json || action.payload).participants.join(', ') : ((action.payload_json || action.payload).participants || 'Team')}</span>
+                                {(action.payload_json || action.payload).purpose && (
+                                  <span>📌 <strong>Purpose:</strong> {(action.payload_json || action.payload).purpose}</span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
                         <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--text-muted)]">
                           <span className="bg-[var(--bg-primary)] px-2 py-0.5 rounded-md border border-[var(--border-subtle)] font-mono">{action.action_type}</span>
                           {action.target_object_id && (
